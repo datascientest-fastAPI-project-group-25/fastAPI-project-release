@@ -5,12 +5,12 @@ metadata:
   namespace: fastapi-app
 data:
   # Environment settings
-  ENVIRONMENT: "development"
+  ENVIRONMENT: "local"
   PROJECT_NAME: "FastAPI"
   
   # Domain settings
-  DOMAIN: "dashboard.localhost.tiangolo.com"
-  FRONTEND_HOST: "http://dashboard.localhost.tiangolo.com"
+  DOMAIN: "localhost"
+  FRONTEND_HOST: "http://localhost:5173"
   SERVER_HOST: "http://backend-service:8000"
   
   # CORS settings
