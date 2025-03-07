@@ -1,0 +1,7 @@
+resources:
+  - backend-deployment.yaml
+  - frontend-deployment.yml
+  - services.yml
+  - postgres-statefulset.yml
+  - ingress.yml
+  - configMap.yml
