@@ -1,1 +1,1 @@
-# sock-shop-infra
+# FastAPI Project
