@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.backend.name }}-deployment
+  namespace: {{ .Values.app.namespace }}
+spec:
+  replicas: {{ .Values.backend.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.backend.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.backend.name }}
+    spec:
+      initContainers:
+      - name: init-db
+        image: {{ .Values.backend.image }}:{{ .Values.backend.tag }}
+        command: ['python3', '-c']
+        args:
+          - |
+            import socket
+            import time
+            import os
+            import sys
+            
+            print("Waiting for PostgreSQL to be ready...")
+            postgres_host = os.environ.get("POSTGRES_SERVER", "postgres")
+            postgres_port = int(os.environ.get("POSTGRES_PORT", "5432"))
+            
+            # Try to connect to PostgreSQL
+            for i in range(30):
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s.settimeout(1)
+                    s.connect((postgres_host, postgres_port))
+                    s.close()
+                    print("PostgreSQL is up!")
+                    break
+                except (socket.error, socket.timeout):
+                    print(f"PostgreSQL is unavailable - sleeping for 5 seconds (attempt {i+1}/30)")
+                    time.sleep(5)
+                    if i == 29:
+                        print("Failed to connect to PostgreSQL after 30 attempts")
+                        sys.exit(1)
+            
+            # Run migrations
+            print("Running database migrations...")
+            import alembic.config
+            import os
+            os.chdir("/app")
+            alembic.config.main(argv=["upgrade", "head"])
+        envFrom:
+        - configMapRef:
+            name: {{ .Release.Name }}-config
+        - secretRef:
+            name: {{ .Release.Name }}-secret
+      containers:
+      - name: {{ .Values.backend.name }}
+        image: {{ .Values.backend.image }}:{{ .Values.backend.tag }}
+        command: ["uvicorn"]
+        args: ["app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--log-level", "debug"]
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        ports:
+        - containerPort: {{ .Values.backend.port }}
+        envFrom:
+        - configMapRef:
+            name: {{ .Release.Name }}-config
+        - secretRef:
+            name: {{ .Release.Name }}-secret
+        livenessProbe:
+          httpGet:
+            path: /api/v1/utils/health-check/
+            port: {{ .Values.backend.port }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        startupProbe:
+          httpGet:
+            path: /api/v1/utils/health-check/
+            port: {{ .Values.backend.port }}
+          failureThreshold: 30
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "300m"
