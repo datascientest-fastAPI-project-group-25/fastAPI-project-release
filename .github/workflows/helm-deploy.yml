@@ -55,6 +55,12 @@ jobs:
           helm lint ./fastapi-helm -f ./fastapi-helm/values-dev.yaml
           helm template fastapi-dev ./fastapi-helm -f ./fastapi-helm/values-dev.yaml --debug
           
+      - name: Make deployment scripts executable
+        run: |
+          chmod +x ./fastapi-helm/deploy-dev.sh
+          chmod +x ./fastapi-helm/deploy-release.sh
+          chmod +x ./fastapi-helm/deploy-prod.sh
+          
       - name: Deploy to Development
         run: |
           echo "Deploying to development environment..."
@@ -116,6 +122,12 @@ jobs:
           helm lint ./fastapi-helm -f ./fastapi-helm/values-release.yaml
           helm template fastapi-release ./fastapi-helm -f ./fastapi-helm/values-release.yaml --debug
           
+      - name: Make deployment scripts executable
+        run: |
+          chmod +x ./fastapi-helm/deploy-dev.sh
+          chmod +x ./fastapi-helm/deploy-release.sh
+          chmod +x ./fastapi-helm/deploy-prod.sh
+          
       - name: Deploy to Release
         run: |
           echo "Deploying to release environment..."
@@ -176,6 +188,12 @@ jobs:
           echo "Validating Helm chart for production environment..."
           helm lint ./fastapi-helm -f ./fastapi-helm/values-prod.yaml
           helm template fastapi-prod ./fastapi-helm -f ./fastapi-helm/values-prod.yaml --debug
+          
+      - name: Make deployment scripts executable
+        run: |
+          chmod +x ./fastapi-helm/deploy-dev.sh
+          chmod +x ./fastapi-helm/deploy-release.sh
+          chmod +x ./fastapi-helm/deploy-prod.sh
           
       - name: Deploy to Production
         run: |
