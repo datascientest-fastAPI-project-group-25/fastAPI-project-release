@@ -35,9 +35,8 @@ database:
   storage:
     size: 10Gi  # Larger storage for production
   credentials:
-    username: postgres
-    password: postgres  # Use AWS Secrets Manager in production
-    database: postgres
+    secretRef:
+      name: postgres-credentials  # Reference to external secret
   service:
     name: postgres
     port: 5432
@@ -45,7 +44,7 @@ database:
 # Ingress configuration
 ingress:
   enabled: true
-  host: dashboard.datascientest-group25.com  # Production domain
+  hostTemplate: "dashboard.${DOMAIN}"  # Will be interpolated from environment variables
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
@@ -53,11 +52,13 @@ ingress:
 
 # ConfigMap values
 configMap:
-  databaseUrl: postgresql://postgres:postgres@postgres:5432/postgres
-  allowedOrigins: https://dashboard.datascientest-group25.com
+  databaseUrl: "${DATABASE_URL}"  # Will be set from external secret
+  allowedOrigins: "https://dashboard.${DOMAIN}"  # Will be interpolated from environment variables
   corsSettings: true
   debugMode: false  # Disable debug mode in production
-  secretKey: production-secret-key  # Use AWS Secrets Manager in production
+  secretKeyRef:
+    name: app-secrets
+    key: secretKey  # Reference to external secret
 
 resources:
   limits:
@@ -95,6 +96,37 @@ readinessProbe:
   timeoutSeconds: 5
   failureThreshold: 3
   successThreshold: 1
+
+# External Secrets configuration
+externalSecrets:
+  enabled: true
+  secretStores:
+    - name: aws-secrets
+      provider: aws-secrets-manager
+      region: ${AWS_REGION}
+  secrets:
+    - name: postgres-credentials
+      secretStore: aws-secrets
+      data:
+        - key: username
+          remoteRef:
+            key: production/postgres/credentials
+            property: username
+        - key: password
+          remoteRef:
+            key: production/postgres/credentials
+            property: password
+        - key: database
+          remoteRef:
+            key: production/postgres/credentials
+            property: database
+    - name: app-secrets
+      secretStore: aws-secrets
+      data:
+        - key: secretKey
+          remoteRef:
+            key: production/app/secrets
+            property: secretKey
 
 # Network policies for production
 networkPolicies:

@@ -8,12 +8,19 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/datascientest-fastapi-project-group-25/fastAPI-project-release.git
+    # Use environment variable for repository URL
+    repoURL: ${REPO_URL}
     targetRevision: main  # Production uses the main branch
     path: charts/fastapi
     helm:
       valueFiles:
         - ../../config/helm/production.yaml
+      parameters:
+        # Pass environment variables to Helm
+        - name: "domain"
+          value: ${DOMAIN}
+        - name: "aws.region"
+          value: ${AWS_REGION}
   destination:
     server: https://kubernetes.default.svc
     namespace: fastapi-helm-prod
