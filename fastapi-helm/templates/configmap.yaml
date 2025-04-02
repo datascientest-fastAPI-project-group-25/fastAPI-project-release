@@ -5,7 +5,7 @@ metadata:
   namespace: {{ .Values.app.namespace }}
 data:
   # Environment settings
-  ENVIRONMENT: "local"
+  ENVIRONMENT: "{{ .Values.app.environment }}"
   PROJECT_NAME: "FastAPI"
   
   # Domain settings
@@ -14,24 +14,19 @@ data:
   SERVER_HOST: "http://{{ .Values.backend.service.name }}:{{ .Values.backend.service.port }}"
   
   # CORS settings
-  BACKEND_CORS_ORIGINS: '{{ .Values.configMap.allowedOrigins | quote }}'
+  BACKEND_CORS_ORIGINS: '{{ .Values.configMap.allowedOrigins | default "*" | quote }}'
   
   # Postgres settings
   POSTGRES_USER: "{{ .Values.database.credentials.username }}"
+  POSTGRES_DB: "{{ .Values.database.credentials.database }}"
   POSTGRES_SERVER: "{{ .Values.database.service.name }}"
   POSTGRES_PORT: "{{ .Values.database.service.port }}"
-  POSTGRES_DB: "{{ .Values.database.credentials.database }}"
+  
+  # Database URL
+  DATABASE_URL: "postgresql://{{ .Values.database.credentials.username }}:{{ .Values.database.credentials.password }}@{{ .Values.database.service.name }}:{{ .Values.database.service.port }}/{{ .Values.database.credentials.database }}"
   
   # User settings
   FIRST_SUPERUSER: "admin@example.com"
   
-  # Backend settings
-  VITE_API_URL: "http://{{ .Values.ingress.host }}/api"
-  
-  # Email settings
-  SMTP_USER: "smtp-user"
-  SMTP_HOST: "smtp.gmail.com"
-  EMAILS_FROM_EMAIL: "info@example.com"
-  
-  # Database URL
-  DATABASE_URL: "{{ .Values.configMap.databaseUrl }}"
+  # Debug settings
+  DEBUG: "{{ .Values.configMap.debug | default "false" }}"

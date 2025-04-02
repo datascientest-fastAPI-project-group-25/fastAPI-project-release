@@ -18,22 +18,15 @@ spec:
         image: {{ .Values.backend.image }}:{{ .Values.backend.tag }}
         ports:
         - containerPort: {{ .Values.backend.port }}
-        command: ["uvicorn"]
-        args:
-        - "app.main:app"
-        - "--host"
-        - "0.0.0.0"
-        - "--port"
-        - "8000"
-        - "--workers"
-        - "1"
-        - "--log-level"
-        - "debug"
-        envFrom:
-        - configMapRef:
-            name: {{ .Release.Name }}-config
-        - secretRef:
-            name: {{ .Release.Name }}-secret
+        env:
+        - name: DATABASE_URL
+          value: postgresql://postgres:postgres@postgres:5432/postgres
+        - name: SECRET_KEY
+          value: your-secret-key
+        - name: DEBUG
+          value: "false"
+        - name: ALLOWED_ORIGINS
+          value: "http://localhost:5174,http://localhost:8002,http://staging.yourdomain.com"
         resources:
           requests:
             memory: {{ .Values.backend.resources.requests.memory | quote }}

@@ -20,7 +20,7 @@ To install the chart with the release name `fastapi-release`:
 
 ```bash
 # From the project root directory
-./fastapi-helm/deploy-helm.sh
+./fastapi-helm/deploy-dev.sh
 ```
 
 This script will:
@@ -111,6 +111,7 @@ helm upgrade --install fastapi-release ./fastapi-helm \
   --create-namespace \
   --values ./fastapi-helm/values-dev.yaml
 ```
+
 What were accomplished in simple terms:
 
 1. Containerization & Organization
@@ -123,7 +124,7 @@ Corrected service naming from postgres-service to postgres
 Resolved backend initialization problems with a Python-based connectivity check
 Fixed backend stability by using a single worker configuration
 3. Deployment Automation
-Created scripts for easy deployment (deploy-helm.sh)
+Created scripts for easy deployment (deploy-dev.sh)
 Added cleanup functionality (cleanup-helm.sh)
 Implemented proper documentation in README.md
 4. Production Readiness
@@ -137,32 +138,37 @@ to visualize and manage your Helm charts and releases:
 1. Kubernetes Dashboard
 You can install the Kubernetes Dashboard to visualize your Kubernetes resources, including those created by Helm:
 
-bash
-
+```bash
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
+```
+
 After installation, you can access it by:
 
-bash
-
+```bash
 kubectl proxy
+```
+
 Then visit: http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
 
 To connect to the Kubernetes Dashboard, you need to create a service account token. Here's how to do it:
 
 First, create a service account and cluster role binding:
-bash
-CopyInsert
+```bash
 # Create a service account
 kubectl create serviceaccount dashboard-admin -n kubernetes-dashboard
 
 # Create a cluster role binding
 kubectl create clusterrolebinding dashboard-admin --clusterrole=cluster-admin --serviceaccount=kubernetes-dashboard:dashboard-admin
+```
+
 Get the token for the service account:
-bash
-CopyInsert
+```bash
 # For newer Kubernetes versions (v1.24+)
 kubectl create token dashboard-admin -n kubernetes-dashboard --duration=24h
+```
+
 Copy the token that's output from the command above.
+
 In the Kubernetes Dashboard login screen:
 Select the "Token" option
 Paste the token you copied

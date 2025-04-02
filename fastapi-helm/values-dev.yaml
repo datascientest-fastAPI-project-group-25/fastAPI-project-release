@@ -59,7 +59,8 @@ service:
 # Application specific values
 app:
   name: fastapi-app
-  namespace: fastapi-helm
+  namespace: fastapi-helm-dev
+  environment: development
 
 # Backend configuration
 backend:
@@ -68,6 +69,24 @@ backend:
   tag: latest
   replicas: 1
   port: 8000
+  args:
+    - "app.main:app"
+    - "--host"
+    - "0.0.0.0"
+    - "--port"
+    - "8000"
+    - "--workers"
+    - "1"
+    - "--log-level"
+    - "debug"
+    - "--reload"  # Enable hot reload for development
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "300m"
   service:
     name: backend-service
     port: 8000
@@ -80,6 +99,13 @@ frontend:
   tag: latest
   replicas: 1
   port: 80
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"
   service:
     name: frontend-service
     port: 80
@@ -89,31 +115,39 @@ frontend:
 database:
   name: postgres
   image: postgres
-  tag: 12
-  storage:
-    size: 1Gi
+  tag: "12"  # Use PostgreSQL 12 to match existing data
+  service:
+    name: postgres
+    port: 5432
   credentials:
     username: postgres
     password: postgres
     database: postgres
-  service:
-    name: postgres
-    port: 5432
+  storage:
+    size: 1Gi  # Smaller size for development
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "300m"
+
+# ConfigMap settings
+configMap:
+  databaseUrl: postgresql://postgres:postgres@postgres:5432/postgres
+  secretKey: your-secret-key
+  debugMode: true
+  allowedOrigins: http://localhost:5173,http://localhost:8000,http://localhost:8080
+  corsSettings: true
+  firstSuperuserPassword: "superpass"
 
 # Ingress configuration
 ingress:
-  enabled: true
+  enabled: false  # Typically use port-forwarding in development
   host: dashboard.localhost.tiangolo.com
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
-
-# ConfigMap values
-configMap:
-  databaseUrl: postgresql://postgres:postgres@postgres:5432/postgres
-  allowedOrigins: http://localhost:5173,http://localhost:8000,http://localhost:8080
-  corsSettings: true
-  debugMode: true
-  secretKey: your-secret-key
 
 # This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
 ingress:
