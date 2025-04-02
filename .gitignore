@@ -5,3 +5,7 @@
 
 # Roo
 .roo
+
+# Scripts and temporary files
+get_helm.sh
+rm
