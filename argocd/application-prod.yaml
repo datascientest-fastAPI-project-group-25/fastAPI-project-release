@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fastapi-app-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/your-org/fastAPI-project-release.git  # Replace with your actual repository URL
+    targetRevision: main  # Production uses the main branch
+    path: fastapi-helm
+    helm:
+      valueFiles:
+        - values.production.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fastapi-helm-prod
+  syncPolicy:
+    automated:
+      prune: true  # Automatically delete resources that are no longer defined in Git
+      selfHeal: true  # Automatically sync resources that differ from Git state
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground  # Wait for dependent resources to be deleted
+      - PruneLast=true  # Delete resources only after new ones are healthy
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas  # Ignore differences in replica count (managed by HPA)
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+      jsonPointers:
+        - /status  # Ignore HPA status differences

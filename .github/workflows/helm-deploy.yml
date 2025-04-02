@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, master ]
     paths:
-      - 'fastapi-helm/**'
+      - 'charts/fastapi/**'
   workflow_dispatch:
     inputs:
       environment:
@@ -35,59 +35,45 @@ jobs:
         with:
           version: v3.10.0
 
-      - name: Configure Kubernetes for Development
-        run: |
-          echo "${{ secrets.KUBE_CONFIG_DEV }}" | base64 -d > kubeconfig
-          mkdir -p $HOME/.kube
-          cp kubeconfig $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
-          kubectl config use-context default
-          
-      - name: Verify Kubernetes Connection
-        run: |
-          echo "Verifying Kubernetes connection..."
-          kubectl cluster-info || true
-          kubectl get nodes || true
-
+      - name: Configure Kubernetes
+        uses: azure/k8s-set-context@v3
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_DEV }}
+      
       - name: Validate Helm Chart
         run: |
           echo "Validating Helm chart for development environment..."
-          helm lint ./fastapi-helm -f ./fastapi-helm/values-dev.yaml
-          helm template fastapi-dev ./fastapi-helm -f ./fastapi-helm/values-dev.yaml --debug
-          
-      - name: Make deployment scripts executable
-        run: |
-          chmod +x ./fastapi-helm/deploy-dev.sh
-          chmod +x ./fastapi-helm/deploy-release.sh
-          chmod +x ./fastapi-helm/deploy-prod.sh
+          helm lint ./charts/fastapi -f ./config/helm/staging.yaml
+          helm template fastapi-dev ./charts/fastapi -f ./config/helm/staging.yaml --debug
           
       - name: Deploy to Development
         run: |
           echo "Deploying to development environment..."
-          ./fastapi-helm/deploy-dev.sh
+          helm upgrade --install fastapi-dev ./charts/fastapi -f ./config/helm/staging.yaml -n fastapi-dev --create-namespace
           
       - name: Verify Deployment
         run: |
           echo "Waiting for pods to be ready..."
-          kubectl wait --for=condition=ready pod -l app=backend -n fastapi-helm-dev --timeout=120s || true
-          kubectl wait --for=condition=ready pod -l app=frontend -n fastapi-helm-dev --timeout=120s || true
+          kubectl wait --for=condition=ready pod -l app=backend -n fastapi-dev --timeout=120s || true
+          kubectl wait --for=condition=ready pod -l app=frontend -n fastapi-dev --timeout=120s || true
           
           echo "Checking pod status..."
-          kubectl get pods -n fastapi-helm-dev
+          kubectl get pods -n fastapi-dev
           
           echo "Checking service status..."
-          kubectl get svc -n fastapi-helm-dev
+          kubectl get svc -n fastapi-dev
           
           echo "Checking backend logs..."
-          kubectl logs -n fastapi-helm-dev -l app=backend --tail=50 || true
+          kubectl logs -n fastapi-dev -l app=backend --tail=50 || true
           
           echo "Checking configmaps and secrets..."
-          kubectl get configmap -n fastapi-helm-dev
-          kubectl get secret -n fastapi-helm-dev
+          kubectl get configmap -n fastapi-dev
+          kubectl get secret -n fastapi-dev
 
   deploy-release:
     runs-on: ubuntu-latest
-    environment: staging
+    environment: development
     needs: deploy-dev
     if: (github.event.inputs.environment == 'release' || github.event.inputs.environment == 'all' || github.event_name == 'push') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     steps:
@@ -102,59 +88,45 @@ jobs:
         with:
           version: v3.10.0
 
-      - name: Configure Kubernetes for Release
-        run: |
-          echo "${{ secrets.KUBE_CONFIG_RELEASE }}" | base64 -d > kubeconfig
-          mkdir -p $HOME/.kube
-          cp kubeconfig $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
-          kubectl config use-context default
-          
-      - name: Verify Kubernetes Connection
-        run: |
-          echo "Verifying Kubernetes connection..."
-          kubectl cluster-info || true
-          kubectl get nodes || true
-
+      - name: Configure Kubernetes
+        uses: azure/k8s-set-context@v3
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_STAGING }}
+      
       - name: Validate Helm Chart
         run: |
           echo "Validating Helm chart for release environment..."
-          helm lint ./fastapi-helm -f ./fastapi-helm/values-release.yaml
-          helm template fastapi-release ./fastapi-helm -f ./fastapi-helm/values-release.yaml --debug
-          
-      - name: Make deployment scripts executable
-        run: |
-          chmod +x ./fastapi-helm/deploy-dev.sh
-          chmod +x ./fastapi-helm/deploy-release.sh
-          chmod +x ./fastapi-helm/deploy-prod.sh
+          helm lint ./charts/fastapi -f ./config/helm/staging.yaml
+          helm template fastapi-release ./charts/fastapi -f ./config/helm/staging.yaml --debug
           
       - name: Deploy to Release
         run: |
           echo "Deploying to release environment..."
-          ./fastapi-helm/deploy-release.sh
+          helm upgrade --install fastapi-release ./charts/fastapi -f ./config/helm/staging.yaml -n fastapi-release --create-namespace
           
       - name: Verify Deployment
         run: |
           echo "Waiting for pods to be ready..."
-          kubectl wait --for=condition=ready pod -l app=backend -n fastapi-helm-release --timeout=120s || true
-          kubectl wait --for=condition=ready pod -l app=frontend -n fastapi-helm-release --timeout=120s || true
+          kubectl wait --for=condition=ready pod -l app=backend -n fastapi-release --timeout=120s || true
+          kubectl wait --for=condition=ready pod -l app=frontend -n fastapi-release --timeout=120s || true
           
           echo "Checking pod status..."
-          kubectl get pods -n fastapi-helm-release
+          kubectl get pods -n fastapi-release
           
           echo "Checking service status..."
-          kubectl get svc -n fastapi-helm-release
+          kubectl get svc -n fastapi-release
           
           echo "Checking backend logs..."
-          kubectl logs -n fastapi-helm-release -l app=backend --tail=50 || true
+          kubectl logs -n fastapi-release -l app=backend --tail=50 || true
           
           echo "Checking configmaps and secrets..."
-          kubectl get configmap -n fastapi-helm-release
-          kubectl get secret -n fastapi-helm-release
+          kubectl get configmap -n fastapi-release
+          kubectl get secret -n fastapi-release
 
   deploy-prod:
     runs-on: ubuntu-latest
-    environment: production
+    environment: development
     needs: deploy-release
     if: (github.event.inputs.environment == 'prod' || github.event.inputs.environment == 'all' || github.event_name == 'push') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     steps:
@@ -169,52 +141,38 @@ jobs:
         with:
           version: v3.10.0
 
-      - name: Configure Kubernetes for Production
-        run: |
-          echo "${{ secrets.KUBE_CONFIG_PROD }}" | base64 -d > kubeconfig
-          mkdir -p $HOME/.kube
-          cp kubeconfig $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
-          kubectl config use-context default
-          
-      - name: Verify Kubernetes Connection
-        run: |
-          echo "Verifying Kubernetes connection..."
-          kubectl cluster-info || true
-          kubectl get nodes || true
-
+      - name: Configure Kubernetes
+        uses: azure/k8s-set-context@v3
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_PROD }}
+      
       - name: Validate Helm Chart
         run: |
           echo "Validating Helm chart for production environment..."
-          helm lint ./fastapi-helm -f ./fastapi-helm/values-prod.yaml
-          helm template fastapi-prod ./fastapi-helm -f ./fastapi-helm/values-prod.yaml --debug
-          
-      - name: Make deployment scripts executable
-        run: |
-          chmod +x ./fastapi-helm/deploy-dev.sh
-          chmod +x ./fastapi-helm/deploy-release.sh
-          chmod +x ./fastapi-helm/deploy-prod.sh
+          helm lint ./charts/fastapi -f ./config/helm/production.yaml
+          helm template fastapi-prod ./charts/fastapi -f ./config/helm/production.yaml --debug
           
       - name: Deploy to Production
         run: |
           echo "Deploying to production environment..."
-          ./fastapi-helm/deploy-prod.sh
+          helm upgrade --install fastapi-prod ./charts/fastapi -f ./config/helm/production.yaml -n fastapi-prod --create-namespace
           
       - name: Verify Deployment
         run: |
           echo "Waiting for pods to be ready..."
-          kubectl wait --for=condition=ready pod -l app=backend -n fastapi-helm-prod --timeout=120s || true
-          kubectl wait --for=condition=ready pod -l app=frontend -n fastapi-helm-prod --timeout=120s || true
+          kubectl wait --for=condition=ready pod -l app=backend -n fastapi-prod --timeout=120s || true
+          kubectl wait --for=condition=ready pod -l app=frontend -n fastapi-prod --timeout=120s || true
           
           echo "Checking pod status..."
-          kubectl get pods -n fastapi-helm-prod
+          kubectl get pods -n fastapi-prod
           
           echo "Checking service status..."
-          kubectl get svc -n fastapi-helm-prod
+          kubectl get svc -n fastapi-prod
           
           echo "Checking backend logs..."
-          kubectl logs -n fastapi-helm-prod -l app=backend --tail=50 || true
+          kubectl logs -n fastapi-prod -l app=backend --tail=50 || true
           
           echo "Checking configmaps and secrets..."
-          kubectl get configmap -n fastapi-helm-prod
-          kubectl get secret -n fastapi-helm-prod
+          kubectl get configmap -n fastapi-prod
+          kubectl get secret -n fastapi-prod

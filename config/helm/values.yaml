@@ -1,0 +1,87 @@
+# Default values for development environment
+app:
+  name: fastapi-app
+  namespace: fastapi-helm-dev
+
+# Backend configuration
+backend:
+  name: backend
+  image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend
+  tag: dev-latest  # This will be updated by the CI pipeline
+  replicas: 1
+  port: 8000
+  service:
+    name: backend-service
+    port: 8000
+    type: ClusterIP
+
+# Frontend configuration
+frontend:
+  name: frontend
+  image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend
+  tag: dev-latest  # This will be updated by the CI pipeline
+  replicas: 1
+  port: 80
+  service:
+    name: frontend-service
+    port: 80
+    type: ClusterIP
+
+# Database configuration
+database:
+  name: postgres
+  image: postgres
+  tag: 12
+  storage:
+    size: 1Gi
+  credentials:
+    username: postgres
+    password: postgres  # In production, use a secret manager
+    database: postgres
+  service:
+    name: postgres
+    port: 5432
+
+# Ingress configuration
+ingress:
+  enabled: true
+  host: dev.dashboard.example.com  # Replace with your actual development domain
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+
+# ConfigMap values
+configMap:
+  databaseUrl: postgresql://postgres:postgres@postgres:5432/postgres
+  allowedOrigins: http://localhost:5173,http://localhost:8000,http://localhost:8080
+  corsSettings: true
+  debugMode: true
+  secretKey: dev-secret-key  # In production, use a secret manager
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 2
+  targetCPUUtilizationPercentage: 80
+
+# Development-specific settings
+livenessProbe:
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+
+readinessProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1

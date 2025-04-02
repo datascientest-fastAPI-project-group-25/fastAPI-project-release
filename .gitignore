@@ -1,5 +1,11 @@
-.codebuddy
+# IDEs and Editors
 .idea
 .vscode
+.codebuddy
+
+# AI tools
+.roo
+
+# Scripts and temporary files
 get_helm.sh
 rm

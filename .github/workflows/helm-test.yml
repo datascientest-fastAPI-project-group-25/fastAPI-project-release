@@ -4,11 +4,11 @@ on:
   push:
     branches: [ main, master ]
     paths:
-      - 'fastapi-helm/**'
+      - 'charts/fastapi/**'
   pull_request:
     branches: [ main, master ]
     paths:
-      - 'fastapi-helm/**'
+      - 'charts/fastapi/**'
   workflow_dispatch:
     inputs:
       environment:
@@ -43,14 +43,14 @@ jobs:
         uses: helm/chart-testing-action@v2.3.1
 
       - name: Run chart-testing (lint)
-        run: ct lint --target-branch ${{ github.event.repository.default_branch }} --charts fastapi-helm
+        run: ct lint --target-branch ${{ github.event.repository.default_branch }} --charts charts/fastapi
 
       - name: Create kind cluster
         uses: helm/kind-action@v1.5.0
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
 
       - name: Run chart-testing (install)
-        run: ct install --target-branch ${{ github.event.repository.default_branch }} --charts fastapi-helm
+        run: ct install --target-branch ${{ github.event.repository.default_branch }} --charts charts/fastapi
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
   
   validate-dev:
@@ -69,12 +69,12 @@ jobs:
       - name: Validate Development Values
         run: |
           echo "Validating development environment values..."
-          helm lint ./fastapi-helm -f ./fastapi-helm/values-dev.yaml
+          helm lint ./charts/fastapi -f ./config/helm/staging.yaml
           
       - name: Template Development Chart
         run: |
           echo "Generating development environment templates..."
-          helm template fastapi-dev ./fastapi-helm -f ./fastapi-helm/values-dev.yaml --debug > dev-templates.yaml
+          helm template fastapi-dev ./charts/fastapi -f ./config/helm/staging.yaml --debug > dev-templates.yaml
           
       - name: Check Development Templates
         run: |
@@ -104,12 +104,12 @@ jobs:
       - name: Validate Release Values
         run: |
           echo "Validating release environment values..."
-          helm lint ./fastapi-helm -f ./fastapi-helm/values-release.yaml
+          helm lint ./charts/fastapi -f ./config/helm/staging.yaml
           
       - name: Template Release Chart
         run: |
           echo "Generating release environment templates..."
-          helm template fastapi-release ./fastapi-helm -f ./fastapi-helm/values-release.yaml --debug > release-templates.yaml
+          helm template fastapi-release ./charts/fastapi -f ./config/helm/staging.yaml --debug > release-templates.yaml
           
       - name: Check Release Templates
         run: |
@@ -139,12 +139,12 @@ jobs:
       - name: Validate Production Values
         run: |
           echo "Validating production environment values..."
-          helm lint ./fastapi-helm -f ./fastapi-helm/values-prod.yaml
+          helm lint ./charts/fastapi -f ./config/helm/production.yaml
           
       - name: Template Production Chart
         run: |
           echo "Generating production environment templates..."
-          helm template fastapi-prod ./fastapi-helm -f ./fastapi-helm/values-prod.yaml --debug > prod-templates.yaml
+          helm template fastapi-prod ./charts/fastapi -f ./config/helm/production.yaml --debug > prod-templates.yaml
           
       - name: Check Production Templates
         run: |

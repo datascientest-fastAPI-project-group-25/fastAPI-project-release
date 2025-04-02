@@ -1,0 +1,26 @@
+apiVersion: v2
+name: fastapi
+description: A Helm chart for deploying the FastAPI application with frontend and backend components
+
+# A chart can be either an 'application' or a 'library' chart.
+type: application
+
+# This is the chart version. This version number should be incremented each time you make changes
+# to the chart and its templates, including the app version.
+version: 0.1.0
+
+# This is the version number of the application being deployed. This version number should be
+# incremented each time you make changes to the application.
+appVersion: "1.0.0"
+
+# Dependencies
+dependencies: []
+
+maintainers:
+  - name: DataScientest Group 25
+    url: https://github.com/datascientest-fastapi-project-group-25
+
+keywords:
+  - fastapi
+  - react
+  - postgres
