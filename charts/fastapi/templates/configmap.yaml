@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.app.name }}-config
+  namespace: {{ .Values.app.namespace }}
+  labels:
+    app: {{ .Values.app.name }}
+data:
+  databaseUrl: {{ .Values.configMap.databaseUrl | quote }}
+  allowedOrigins: {{ .Values.configMap.allowedOrigins | quote }}
+  corsSettings: {{ .Values.configMap.corsSettings | quote }}
+  debugMode: {{ .Values.configMap.debugMode | quote }}
+  secretKey: {{ .Values.configMap.secretKey | quote }}

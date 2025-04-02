@@ -1,3 +1,7 @@
-.codebuddy
+# IDEs and Editors
 .idea
 .vscode
+.codebuddy
+
+# Roo
+.roo

@@ -1,0 +1,125 @@
+# Default values for fastapi-app.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+app:
+  name: fastapi-app
+  namespace: fastapi-helm
+
+# Image pull secrets for private registry
+imagePullSecrets:
+  - name: ghcr-secret
+
+# Service account configuration
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Pod-level security settings
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Container-level security settings
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# Backend configuration
+backend:
+  name: backend
+  image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend
+  tag: latest
+  replicas: 1
+  port: 8000
+  service:
+    name: backend-service
+    port: 8000
+    type: ClusterIP
+
+# Frontend configuration
+frontend:
+  name: frontend
+  image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend
+  tag: latest
+  replicas: 1
+  port: 80
+  service:
+    name: frontend-service
+    port: 80
+    type: ClusterIP
+
+# Database configuration
+database:
+  name: postgres
+  image: postgres
+  tag: "12"
+  storage:
+    size: 1Gi
+  credentials:
+    username: postgres
+    password: postgres
+    database: postgres
+  service:
+    name: postgres
+    port: 5432
+
+# Ingress configuration
+ingress:
+  enabled: true
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+  host: dashboard.localhost
+  tls: []
+
+# ConfigMap values
+configMap:
+  databaseUrl: postgresql://postgres:postgres@postgres:5432/postgres
+  allowedOrigins: http://localhost
+  corsSettings: "true"
+  debugMode: "true"
+  secretKey: dev-secret-key
+
+# Resource configuration
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Autoscaling configuration
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+
+# Probes configuration
+livenessProbe:
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+
+readinessProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+
+# Network policies
+networkPolicies:
+  enabled: false
+  ingressRules: []
+  egressRules: []
