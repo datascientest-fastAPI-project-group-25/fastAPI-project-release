@@ -17,7 +17,8 @@ This repository contains the Kubernetes manifests, Helm charts, and Argo CD conf
 │           ├── frontend-deployment.yaml
 │           ├── ingress.yaml
 │           ├── postgres-statefulset.yaml
-│           └── services.yaml
+│           ├── services.yaml
+│           └── db-init-script-configmap.yaml  # Database initialization and migrations
 ├── config/                   # Environment-specific configurations
 │   ├── argocd/              # Argo CD Application manifests
 │   │   ├── staging.yaml     # Staging environment
@@ -26,7 +27,14 @@ This repository contains the Kubernetes manifests, Helm charts, and Argo CD conf
 │       ├── values.yaml      # Default values (development)
 │       ├── staging.yaml     # Staging environment
 │       └── production.yaml  # Production environment
-└── manifests/               # Raw Kubernetes manifests (reference)
+├── scripts/                  # Deployment and maintenance scripts
+│   ├── deploy-dev.sh        # Development deployment script
+│   ├── deploy-prod.sh       # Production deployment script
+│   └── cleanup.sh          # Environment cleanup script
+└── .github/                 # GitHub Actions workflows
+    └── workflows/
+        ├── helm-deploy.yml  # Deployment workflow
+        └── helm-test.yml    # Testing workflow
 ```
 
 ## Prerequisites
@@ -65,6 +73,41 @@ This repository contains the Kubernetes manifests, Helm charts, and Argo CD conf
   - Autoscaling enabled
   - Enhanced security
   - TLS enabled
+
+## Deployment Methods
+
+### Using Scripts
+
+The repository includes several utility scripts to manage deployments:
+
+```bash
+# Deploy to development environment
+./scripts/deploy-dev.sh
+
+# Deploy to production environment
+./scripts/deploy-prod.sh
+
+# Clean up environments
+./scripts/cleanup.sh dev    # Clean development environment
+./scripts/cleanup.sh prod   # Clean production environment
+./scripts/cleanup.sh all    # Clean all environments
+```
+
+### Using GitHub Actions
+
+The project uses GitHub Actions for CI/CD with the following workflows:
+
+1. **Helm Chart Test (`helm-test.yml`)**
+   - Triggers on pull requests and pushes to main
+   - Validates Helm charts
+   - Runs chart-testing
+   - Tests chart installation in a Kind cluster
+
+2. **Helm Chart Deploy (`helm-deploy.yml`)**
+   - Deploys to development, staging, and production environments
+   - Supports manual triggering with environment selection
+   - Includes validation and verification steps
+   - Manages environment-specific configurations
 
 ## Deployment Process
 

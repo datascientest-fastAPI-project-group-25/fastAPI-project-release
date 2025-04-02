@@ -1,0 +1,159 @@
+name: Helm Chart Test
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'charts/fastapi/**'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'charts/fastapi/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to test (dev, release, prod, or all)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - dev
+          - release
+          - prod
+          - all
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.10.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Set up chart-testing
+        uses: helm/chart-testing-action@v2.3.1
+
+      - name: Run chart-testing (lint)
+        run: ct lint --target-branch ${{ github.event.repository.default_branch }} --charts charts/fastapi
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1.5.0
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+
+      - name: Run chart-testing (install)
+        run: ct install --target-branch ${{ github.event.repository.default_branch }} --charts charts/fastapi
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+  
+  validate-dev:
+    runs-on: ubuntu-latest
+    needs: lint-test
+    if: github.event.inputs.environment == 'dev' || github.event.inputs.environment == 'all' || github.event_name == 'workflow_dispatch' == false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.10.0
+          
+      - name: Validate Development Values
+        run: |
+          echo "Validating development environment values..."
+          helm lint ./charts/fastapi -f ./config/helm/staging.yaml
+          
+      - name: Template Development Chart
+        run: |
+          echo "Generating development environment templates..."
+          helm template fastapi-dev ./charts/fastapi -f ./config/helm/staging.yaml --debug > dev-templates.yaml
+          
+      - name: Check Development Templates
+        run: |
+          echo "Checking development environment templates for common issues..."
+          grep -i "error" dev-templates.yaml || true
+          grep -i "null" dev-templates.yaml || true
+          
+      - name: Upload Development Templates
+        uses: actions/upload-artifact@v3
+        with:
+          name: dev-templates
+          path: dev-templates.yaml
+          
+  validate-release:
+    runs-on: ubuntu-latest
+    needs: lint-test
+    if: github.event.inputs.environment == 'release' || github.event.inputs.environment == 'all' || github.event_name == 'workflow_dispatch' == false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.10.0
+          
+      - name: Validate Release Values
+        run: |
+          echo "Validating release environment values..."
+          helm lint ./charts/fastapi -f ./config/helm/staging.yaml
+          
+      - name: Template Release Chart
+        run: |
+          echo "Generating release environment templates..."
+          helm template fastapi-release ./charts/fastapi -f ./config/helm/staging.yaml --debug > release-templates.yaml
+          
+      - name: Check Release Templates
+        run: |
+          echo "Checking release environment templates for common issues..."
+          grep -i "error" release-templates.yaml || true
+          grep -i "null" release-templates.yaml || true
+          
+      - name: Upload Release Templates
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-templates
+          path: release-templates.yaml
+          
+  validate-prod:
+    runs-on: ubuntu-latest
+    needs: lint-test
+    if: github.event.inputs.environment == 'prod' || github.event.inputs.environment == 'all' || github.event_name == 'workflow_dispatch' == false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.10.0
+          
+      - name: Validate Production Values
+        run: |
+          echo "Validating production environment values..."
+          helm lint ./charts/fastapi -f ./config/helm/production.yaml
+          
+      - name: Template Production Chart
+        run: |
+          echo "Generating production environment templates..."
+          helm template fastapi-prod ./charts/fastapi -f ./config/helm/production.yaml --debug > prod-templates.yaml
+          
+      - name: Check Production Templates
+        run: |
+          echo "Checking production environment templates for common issues..."
+          grep -i "error" prod-templates.yaml || true
+          grep -i "null" prod-templates.yaml || true
+          
+      - name: Upload Production Templates
+        uses: actions/upload-artifact@v3
+        with:
+          name: prod-templates
+          path: prod-templates.yaml
