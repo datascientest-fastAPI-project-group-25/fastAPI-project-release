@@ -36,11 +36,12 @@ jobs:
           version: v3.10.0
 
       - name: Configure Kubernetes for Development
-        uses: azure/k8s-set-context@v3
-        with:
-          method: kubeconfig
-          kubeconfig: ${{ secrets.KUBE_CONFIG_DEV }}
-      
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_DEV }}" > kubeconfig
+          mkdir -p $HOME/.kube
+          cp kubeconfig $HOME/.kube/config
+          kubectl config use-context default
+          
       - name: Verify Kubernetes Connection
         run: |
           echo "Verifying Kubernetes connection..."
@@ -95,11 +96,12 @@ jobs:
           version: v3.10.0
 
       - name: Configure Kubernetes for Release
-        uses: azure/k8s-set-context@v3
-        with:
-          method: kubeconfig
-          kubeconfig: ${{ secrets.KUBE_CONFIG_RELEASE }}
-      
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_RELEASE }}" > kubeconfig
+          mkdir -p $HOME/.kube
+          cp kubeconfig $HOME/.kube/config
+          kubectl config use-context default
+          
       - name: Verify Kubernetes Connection
         run: |
           echo "Verifying Kubernetes connection..."
@@ -154,11 +156,12 @@ jobs:
           version: v3.10.0
 
       - name: Configure Kubernetes for Production
-        uses: azure/k8s-set-context@v3
-        with:
-          method: kubeconfig
-          kubeconfig: ${{ secrets.KUBE_CONFIG_PROD }}
-      
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_PROD }}" > kubeconfig
+          mkdir -p $HOME/.kube
+          cp kubeconfig $HOME/.kube/config
+          kubectl config use-context default
+          
       - name: Verify Kubernetes Connection
         run: |
           echo "Verifying Kubernetes connection..."
