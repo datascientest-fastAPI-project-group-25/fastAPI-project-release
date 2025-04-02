@@ -35,12 +35,18 @@ jobs:
         with:
           version: v3.10.0
 
-      - name: Configure Kubernetes
+      - name: Configure Kubernetes for Development
         uses: azure/k8s-set-context@v3
         with:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBE_CONFIG_DEV }}
       
+      - name: Verify Kubernetes Connection
+        run: |
+          echo "Verifying Kubernetes connection..."
+          kubectl cluster-info
+          kubectl get nodes
+
       - name: Validate Helm Chart
         run: |
           echo "Validating Helm chart for development environment..."
@@ -88,12 +94,18 @@ jobs:
         with:
           version: v3.10.0
 
-      - name: Configure Kubernetes
+      - name: Configure Kubernetes for Release
         uses: azure/k8s-set-context@v3
         with:
           method: kubeconfig
-          kubeconfig: ${{ secrets.KUBE_CONFIG_STAGING }}
+          kubeconfig: ${{ secrets.KUBE_CONFIG_RELEASE }}
       
+      - name: Verify Kubernetes Connection
+        run: |
+          echo "Verifying Kubernetes connection..."
+          kubectl cluster-info
+          kubectl get nodes
+
       - name: Validate Helm Chart
         run: |
           echo "Validating Helm chart for release environment..."
@@ -141,12 +153,18 @@ jobs:
         with:
           version: v3.10.0
 
-      - name: Configure Kubernetes
+      - name: Configure Kubernetes for Production
         uses: azure/k8s-set-context@v3
         with:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBE_CONFIG_PROD }}
       
+      - name: Verify Kubernetes Connection
+        run: |
+          echo "Verifying Kubernetes connection..."
+          kubectl cluster-info
+          kubectl get nodes
+
       - name: Validate Helm Chart
         run: |
           echo "Validating Helm chart for production environment..."
