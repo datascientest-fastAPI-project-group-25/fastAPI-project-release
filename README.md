@@ -2,6 +2,14 @@
 
 This repository contains the Kubernetes manifests, Helm charts, and Argo CD configurations for deploying the FastAPI application.
 
+## Documentation
+
+Detailed documentation is available in the `docs/` directory:
+
+- [Release Strategy](docs/release-strategy.md) - Comprehensive guide to the release strategy
+- [Quick Start Guide](docs/quick-start.md) - Quick start guide for new team members
+- [Troubleshooting](docs/troubleshooting.md) - Solutions to common issues
+
 ## Repository Structure
 
 ```
