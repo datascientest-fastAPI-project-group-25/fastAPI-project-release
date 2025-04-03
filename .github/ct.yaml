@@ -17,8 +17,5 @@ excluded-charts: []
 # Additional chart repos to add
 chart-repos: []
 
-# Lint configuration
-lint-conf: .github/lintconf.yaml
-
 # Debug mode
-debug: false
+debug: true

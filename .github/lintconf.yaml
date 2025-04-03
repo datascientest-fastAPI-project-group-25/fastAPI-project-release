@@ -1,10 +1,9 @@
 # Lint Configuration
-# See: https://github.com/helm/chart-testing/blob/master/pkg/config/config.go
+# See: https://yamllint.readthedocs.io/en/stable/configuration.html
 
-# Exclude these rules
+extends: default
+
 rules:
-  # Disable maintainer validation
-  - id: "maintainers-email"
-    disable: true
-  - id: "maintainers-url"
-    disable: true
+  line-length: disable
+  trailing-spaces: disable
+  document-start: disable
