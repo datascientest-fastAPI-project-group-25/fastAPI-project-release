@@ -40,7 +40,7 @@ This repository contains the Kubernetes manifests, Helm charts, and Argo CD conf
         ├── helm-deploy.yml  # Deployment workflow
         ├── helm-test.yml    # Testing workflow
         ├── pr-automation.yml # PR automation workflow
-        ├── app-test.yml     # Helm and ArgoCD testing workflow
+        ├── helm-argocd-test.yml # Helm and ArgoCD testing workflow
         └── argocd-integration.yml # ArgoCD integration workflow
 ```
 
@@ -139,7 +139,7 @@ The project uses GitHub Actions for CI/CD with the following workflows:
    - Automatically creates a PR if one doesn't exist
    - Adds appropriate labels and descriptions
 
-2. **Helm and ArgoCD Tests (`app-test.yml`)**
+2. **Helm and ArgoCD Tests (`helm-argocd-test.yml`)**
    - Triggers on PR creation and updates
    - Validates Helm charts and ArgoCD configurations
    - Runs chart-testing in a Kind cluster
@@ -219,7 +219,7 @@ The repository includes scripts and workflows for ArgoCD integration:
    - Main branch changes trigger deployment to staging/production
 
 3. **PR Deployments**:
-   - When a PR is created, the `app-test.yml` workflow prepares deployment manifests
+   - When a PR is created, the `helm-argocd-test.yml` workflow prepares deployment manifests
    - ArgoCD can be configured to deploy these manifests to a playground environment
    - Each PR gets its own isolated environment for testing
 
