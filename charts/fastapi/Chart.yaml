@@ -18,7 +18,7 @@ dependencies: []
 
 maintainers:
   - name: DataScientest Group 25
-    url: https://github.com/datascientest-fastapi-project-group-25/fastAPI-project-release
+    email: info@example.com
 
 keywords:
   - fastapi
