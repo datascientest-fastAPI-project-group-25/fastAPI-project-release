@@ -1,0 +1,10 @@
+# Lint Configuration
+# See: https://github.com/helm/chart-testing/blob/master/pkg/config/config.go
+
+# Exclude these rules
+rules:
+  # Disable maintainer validation
+  - id: "maintainers-email"
+    disable: true
+  - id: "maintainers-url"
+    disable: true
