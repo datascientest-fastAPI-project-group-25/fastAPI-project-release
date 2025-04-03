@@ -1,0 +1,21 @@
+# Chart Testing Configuration
+# See: https://github.com/helm/chart-testing/blob/master/pkg/config/config.go
+
+# Default timeout for chart installation in seconds
+timeout: 300
+
+# Skip maintainer validation
+validate-maintainers: false
+
+# Chart directories to scan
+chart-dirs:
+  - charts
+
+# Directories to skip
+excluded-charts: []
+
+# Additional chart repos to add
+chart-repos: []
+
+# Debug mode
+debug: true

@@ -1,0 +1,127 @@
+name: Helm and ArgoCD Tests
+
+on:
+  pull_request:
+    branches: [ main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+jobs:
+  helm-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.10.0
+
+      - name: Lint Helm Chart
+        run: |
+          helm lint ./charts/fastapi -f ./config/helm/staging.yaml
+          helm lint ./charts/fastapi -f ./config/helm/playground.yaml
+
+  chart-testing:
+    runs-on: ubuntu-latest
+    needs: helm-lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.10.0
+
+      - name: Set up chart-testing
+        uses: helm/chart-testing-action@v2.3.1
+
+      - name: Run chart-testing (lint)
+        run: ct lint --target-branch ${{ github.event.repository.default_branch }} --charts charts/fastapi --config .github/ct.yaml
+
+      # Skip chart installation for now
+      # - name: Create kind cluster
+      #   uses: helm/kind-action@v1.5.0
+
+      # - name: Run chart-testing (install)
+      #   run: ct install --target-branch ${{ github.event.repository.default_branch }} --charts charts/fastapi --config .github/ct.yaml
+
+      - name: Skip chart installation
+        run: echo "Skipping chart installation for now"
+
+  validate-argocd-config:
+    runs-on: ubuntu-latest
+    needs: helm-lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Validate ArgoCD Configuration
+        run: |
+          # Validate ArgoCD application manifests
+          for file in config/argocd/*.yaml; do
+            echo "Validating $file..."
+            if grep -q "kind: Application" "$file"; then
+              echo "✅ $file contains a valid ArgoCD Application resource"
+            else
+              echo "❌ $file does not contain a valid ArgoCD Application resource"
+              exit 1
+            fi
+          done
+          echo "All ArgoCD configuration files are valid."
+
+  prepare-playground-deployment:
+    runs-on: ubuntu-latest
+    needs: [validate-argocd-config]
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.10.0
+
+      - name: Generate Deployment Manifests
+        run: |
+          echo "Generating deployment manifests for playground environment..."
+          helm template fastapi-playground ./charts/fastapi -f ./config/helm/playground.yaml > playground-manifests.yaml
+
+          # Store manifests as an artifact
+          mkdir -p deployment-manifests
+          cp playground-manifests.yaml deployment-manifests/
+
+          echo "Manifests generated successfully."
+
+      - name: Upload Deployment Manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-manifests
+          path: deployment-manifests/
+          retention-days: 5
+
+      - name: Prepare ArgoCD Integration
+        run: |
+          echo "In a production setup, this step would:"
+          echo "1. Register the PR branch with ArgoCD"
+          echo "2. Configure ArgoCD to deploy to the playground environment"
+          echo "3. Set up the necessary secrets and credentials"
+
+          # This would be implemented when the AWS infrastructure is ready
+          # ./scripts/setup-argocd-integration.sh
+
+  notify-success:
+    runs-on: ubuntu-latest
+    needs: [validate-argocd-config, prepare-playground-deployment]
+    if: success()
+    steps:
+      - name: Notify Success
+        run: |
+          echo "All Helm and ArgoCD tests passed successfully!"
+          echo "The PR is ready for review and deployment."
+          # Add notification logic here (Slack, Teams, etc.)

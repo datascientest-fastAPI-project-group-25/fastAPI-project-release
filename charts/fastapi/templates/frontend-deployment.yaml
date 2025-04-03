@@ -31,7 +31,11 @@ spec:
             - name: VITE_API_URL
               value: "https://{{ .Values.ingress.host }}/api"
             - name: NODE_ENV
+              {{- if kindIs "bool" .Values.configMap.debugMode }}
+              value: {{ if .Values.configMap.debugMode }}"development"{{ else }}"production"{{ end }}
+              {{- else }}
               value: {{ if eq .Values.configMap.debugMode "true" }}"development"{{ else }}"production"{{ end }}
+              {{- end }}
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
