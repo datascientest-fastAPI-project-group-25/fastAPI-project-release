@@ -186,10 +186,10 @@ The project uses GitHub Actions for CI/CD with the following workflows:
      --namespace=fastapi-helm
    ```
 
-3. Set up ArgoCD API key for CI/CD integration:
+3. Set up ArgoCD API key for CI/CD integration and store it as a GitHub secret:
    ```bash
-   # Run the setup script to configure ArgoCD and generate an API key
-   ./scripts/setup-argocd.sh
+   # Run the setup script to configure ArgoCD, generate an API key, and store it as a GitHub secret
+   ./scripts/setup-argocd-github.sh
    ```
 
 4. Apply Argo CD applications:
@@ -209,9 +209,9 @@ The project uses GitHub Actions for CI/CD with the following workflows:
 The repository includes scripts and workflows for ArgoCD integration:
 
 1. **Manual Setup**:
-   - Use `./scripts/setup-argocd.sh` to install and configure ArgoCD
+   - Use `./scripts/setup-argocd-github.sh` to install and configure ArgoCD
    - Generate an API key for CI/CD integration
-   - Store the API key as a GitHub secret (`ARGOCD_AUTH_TOKEN`)
+   - Automatically store the API key and server URL as GitHub secrets (`ARGOCD_AUTH_TOKEN` and `ARGOCD_SERVER`)
 
 2. **CI/CD Integration**:
    - The `argocd-integration.yml` workflow configures ArgoCD applications
