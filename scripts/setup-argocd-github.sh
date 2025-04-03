@@ -5,6 +5,12 @@
 
 # Usage: ./setup-argocd-github.sh [--skip-k8s-check]
 #   --skip-k8s-check: Skip Kubernetes cluster check (for manual API key setup)
+#
+# This script can also be run using the Makefile:
+#   make setup-github
+#
+# This script can also be run using the Makefile:
+#   make setup-github
 
 set -e
 

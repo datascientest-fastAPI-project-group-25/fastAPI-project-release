@@ -27,7 +27,7 @@ This guide provides solutions to common issues you might encounter when using th
    ```
 2. Verify that the ArgoCD configuration is correct:
    ```bash
-   kubectl apply --dry-run=client -f config/argocd/playground.yaml
+   kubectl apply --dry-run=client -f config/argocd/staging.yaml
    ```
 3. Make sure all required files have newlines at the end
 4. Check for YAML formatting issues
