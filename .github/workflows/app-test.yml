@@ -2,7 +2,7 @@ name: Helm and ArgoCD Tests
 
 on:
   pull_request:
-    branches: [ main, master ]
+    branches: [ main]
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 
