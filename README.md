@@ -22,13 +22,11 @@ This repository contains the Kubernetes manifests, Helm charts, and Argo CD conf
 ├── config/                   # Environment-specific configurations
 │   ├── argocd/              # Argo CD Application manifests
 │   │   ├── staging.yaml     # Staging environment
-│   │   ├── production.yaml  # Production environment
-│   │   └── playground.yaml  # Playground environment for PRs
+│   │   └── production.yaml  # Production environment
 │   └── helm/                # Environment-specific Helm values
 │       ├── values.yaml      # Default values (development)
 │       ├── staging.yaml     # Staging environment
-│       ├── production.yaml  # Production environment
-│       └── playground.yaml  # Playground environment for PRs
+│       └── production.yaml  # Production environment
 ├── scripts/                  # Deployment and maintenance scripts
 │   ├── deploy-dev.sh        # Development deployment script
 │   ├── deploy-prod.sh       # Production deployment script
@@ -38,9 +36,9 @@ This repository contains the Kubernetes manifests, Helm charts, and Argo CD conf
 └── .github/                 # GitHub Actions workflows
     └── workflows/
         ├── helm-deploy.yml  # Deployment workflow
-        ├── helm-test.yml    # Testing workflow
-        ├── pr-automation.yml # PR automation workflow
-        ├── helm-argocd-test.yml # Helm and ArgoCD testing workflow
+        ├── helm-test.yml    # Helm chart testing workflow
+        ├── pr-automation.yml # PR automation workflow with branch deletion on merge
+        ├── helm-argocd-test.yml # ArgoCD configuration testing workflow
         └── argocd-integration.yml # ArgoCD integration workflow
 ```
 
@@ -59,7 +57,6 @@ This project follows a streamlined release strategy with feature/fix branches th
    - Create feature/fix branches from main (`feat/*` or `fix/*`)
    - Push changes to GitHub to automatically create a PR
    - PR triggers tests and validation workflows
-   - PR can be deployed to a playground environment for testing
    - After review and approval, merge to main
 
 2. **Deployment Process**:
@@ -68,20 +65,10 @@ This project follows a streamlined release strategy with feature/fix branches th
    - ArgoCD manages the deployment process
 
 3. **Environments**:
-   - **Playground**: Temporary environment for PR testing
    - **Staging**: Pre-production environment for validation
    - **Production**: Live environment
 
 ## Environment Overview
-
-### Playground
-- Branch: PR branch (`feat/*` or `fix/*`)
-- Values: `config/helm/playground.yaml`
-- Features:
-  - Debug mode enabled
-  - Minimal resources
-  - Temporary deployment for PR testing
-  - Automatically created and destroyed
 
 ### Development
 - Branch: `main`
@@ -138,17 +125,18 @@ The project uses GitHub Actions for CI/CD with the following workflows:
    - Triggers on pushes to feature/* and fix/* branches
    - Automatically creates a PR if one doesn't exist
    - Adds appropriate labels and descriptions
+   - Deletes branches automatically after PR is merged
 
-2. **Helm and ArgoCD Tests (`helm-argocd-test.yml`)**
-   - Triggers on PR creation and updates
-   - Validates Helm charts and ArgoCD configurations
-   - Runs chart-testing in a Kind cluster
-   - Prepares deployment manifests for the playground environment
+2. **ArgoCD Configuration Tests (`helm-argocd-test.yml`)**
+   - Triggers on PR creation and updates affecting ArgoCD configurations
+   - Validates ArgoCD application manifests
+   - Prepares deployment manifests for testing
+   - Focuses specifically on ArgoCD-related configurations
 
 3. **Helm Chart Test (`helm-test.yml`)**
    - Triggers on pull requests and pushes to main
-   - Validates Helm charts
-   - Runs chart-testing
+   - Validates Helm charts across all environments
+   - Runs comprehensive chart-testing
    - Tests chart installation in a Kind cluster
 
 4. **Helm Chart Deploy (`helm-deploy.yml`)**
@@ -194,9 +182,6 @@ The project uses GitHub Actions for CI/CD with the following workflows:
 
 4. Apply Argo CD applications:
    ```bash
-   # For playground environment (PR testing)
-   kubectl apply -f config/argocd/playground.yaml
-
    # For staging
    kubectl apply -f config/argocd/staging.yaml
 
@@ -215,13 +200,13 @@ The repository includes scripts and workflows for ArgoCD integration:
 
 2. **CI/CD Integration**:
    - The `argocd-integration.yml` workflow configures ArgoCD applications
-   - PR branches can be deployed to the playground environment
-   - Main branch changes trigger deployment to staging/production
+   - Main branch changes trigger deployment to staging
+   - After validation, changes can be promoted to production
 
-3. **PR Deployments**:
-   - When a PR is created, the `helm-argocd-test.yml` workflow prepares deployment manifests
-   - ArgoCD can be configured to deploy these manifests to a playground environment
-   - Each PR gets its own isolated environment for testing
+3. **PR Testing**:
+   - When a PR is created, the `helm-argocd-test.yml` workflow validates Helm charts and ArgoCD configurations
+   - The workflow prepares deployment manifests for testing
+   - These manifests can be used for manual testing or review
 
 ## Configuration
 

@@ -4,12 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Environment to deploy (playground, staging, production)'
+        description: 'Environment to deploy (staging, production)'
         required: true
-        default: 'playground'
+        default: 'staging'
         type: choice
         options:
-          - playground
           - staging
           - production
       branch:
@@ -42,11 +41,7 @@ jobs:
       - name: Deploy with ArgoCD
         run: |
           # Set environment-specific variables
-          if [ "${{ github.event.inputs.environment }}" == "playground" ]; then
-            APP_NAME="fastapi-playground"
-            NAMESPACE="fastapi-helm-playground"
-            VALUES_FILE="config/helm/playground.yaml"
-          elif [ "${{ github.event.inputs.environment }}" == "staging" ]; then
+          if [ "${{ github.event.inputs.environment }}" == "staging" ]; then
             APP_NAME="fastapi-staging"
             NAMESPACE="fastapi-helm-staging"
             VALUES_FILE="config/helm/staging.yaml"
@@ -96,9 +91,7 @@ jobs:
           echo "Deployment to ${{ github.event.inputs.environment }} environment complete!"
           echo "Branch: ${{ github.event.inputs.branch }}"
 
-          if [ "${{ github.event.inputs.environment }}" == "playground" ]; then
-            echo "URL: https://playground.example.com"
-          elif [ "${{ github.event.inputs.environment }}" == "staging" ]; then
+          if [ "${{ github.event.inputs.environment }}" == "staging" ]; then
             echo "URL: https://staging.example.com"
           elif [ "${{ github.event.inputs.environment }}" == "production" ]; then
             echo "URL: https://example.com"

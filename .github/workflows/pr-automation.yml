@@ -8,6 +8,11 @@ on:
     paths-ignore:
       - '**.md'
       - 'docs/**'
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+      - master
 
 jobs:
   create-pr:
@@ -28,22 +33,22 @@ jobs:
           title: "[${{ github.ref_name }}] Automated PR"
           body: |
             ## Automated Pull Request
-            
+
             This PR was automatically created from branch `${{ github.ref_name }}`.
-            
+
             ### Changes
-            
+
             ${{ github.event.head_commit.message }}
-            
+
             ### Checklist
-            
+
             - [ ] Tests have been added/updated
             - [ ] Documentation has been updated
             - [ ] Changes have been reviewed
           base: main
           branch: ${{ github.ref_name }}
           draft: false
-          
+
       - name: PR Details
         if: steps.create-pr.outputs.pull-request-number
         run: |
@@ -59,3 +64,13 @@ jobs:
         run: |
           echo "Pull Request has been created successfully"
           # Add notification logic here (Slack, Teams, etc.)
+
+  delete-branch:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    steps:
+      - name: Delete branch
+        uses: dawidd6/action-delete-branch@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branches: ${{ github.event.pull_request.head.ref }}

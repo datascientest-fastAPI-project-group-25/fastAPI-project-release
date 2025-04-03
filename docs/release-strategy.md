@@ -69,15 +69,13 @@ When you push a feature or fix branch to GitHub, our PR automation workflow auto
 
 ## Environment Setup
 
-We use three environments for our deployment pipeline:
+We use two environments for our deployment pipeline:
 
-1. **Playground**: Temporary environment for PR testing
-2. **Staging**: Pre-production environment for validation
-3. **Production**: Live environment
+1. **Staging**: Pre-production environment for validation
+2. **Production**: Live environment
 
 ### Configuration Files
 
-- **Playground**: `config/helm/playground.yaml` and `config/argocd/playground.yaml`
 - **Staging**: `config/helm/staging.yaml` and `config/argocd/staging.yaml`
 - **Production**: `config/helm/production.yaml` and `config/argocd/production.yaml`
 
