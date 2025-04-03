@@ -69,8 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
     steps:
-      - name: Delete branch
-        uses: dawidd6/action-delete-branch@v3
+      - name: Delete merged branch
+        uses: SvanBoxel/delete-merged-branch@main
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          branches: ${{ github.event.pull_request.head.ref }}
