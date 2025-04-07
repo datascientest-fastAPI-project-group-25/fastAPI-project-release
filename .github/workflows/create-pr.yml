@@ -39,18 +39,6 @@ jobs:
             echo "TYPE=other" >> $GITHUB_ENV
           fi
 
-      # - name: Create Pull Request to staging
-      #   id: create-pr
-      #   uses: devops-infra/action-pull-request@v0.5.4
-      #   with:
-      #     github_token: ${{ secrets.MACHINE_USER_TOKEN }}
-      #     target_branch: main
-      #     title: "${{ env.TYPE }}: Promote ${{ env.BRANCH_NAME }} to main"
-      #     body: |
-      #       This PR promotes branch **${{ env.BRANCH_NAME }}** to **main**.
-      #
-      #       _Automated PR created by workflow._
-
       - name: Create Pull Request with GitHub CLI
         id: create-pr
         env:
@@ -59,12 +47,28 @@ jobs:
           # Authenticate GitHub CLI
 
           # Create PR and capture output
-          pr_url=$(gh pr create \
+          # Attempt to create PR, capture output and exit code
+          pr_output=$(mktemp)
+          gh pr create \
             --base main \
             --head "${{ env.BRANCH_NAME }}" \
             --title "${{ env.TYPE }}: Promote ${{ env.BRANCH_NAME }} to main" \
-            --body $'This PR promotes branch **${{ env.BRANCH_NAME }}** to **main**.\n\n_Automated PR created by workflow._')
+            --body $'This PR promotes branch **${{ env.BRANCH_NAME }}** to **main**.\n\n_Automated PR created by workflow._' \
+            > "$pr_output" 2>&1
+          exit_code=$?
 
+          pr_result=$(cat "$pr_output")
+
+          if echo "$pr_result" | grep -qi "already exists"; then
+            echo "Pull request already exists. Skipping creation."
+            exit 0
+          elif [ $exit_code -ne 0 ]; then
+            echo "$pr_result"
+            exit $exit_code
+          fi
+
+          # PR created successfully, extract URL from output
+          pr_url="$pr_result"
           echo "PR URL: $pr_url"
 
           # Extract PR number from URL
