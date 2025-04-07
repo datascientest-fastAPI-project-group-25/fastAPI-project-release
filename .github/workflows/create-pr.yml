@@ -57,7 +57,6 @@ jobs:
           GH_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
         run: |
           # Authenticate GitHub CLI
-          echo "${GH_TOKEN}" | gh auth login --with-token
 
           # Create PR and capture output
           pr_url=$(gh pr create \
