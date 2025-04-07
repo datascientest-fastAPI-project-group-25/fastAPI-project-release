@@ -26,31 +26,50 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch }}
 
-      - name: Install ArgoCD CLI
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build Docker tools image
+        run: docker build -t fastapi-tools .
+
+      - name: Install ArgoCD CLI and Login
         run: |
+          # Create a script to install ArgoCD CLI and login
+          cat > argocd-login.sh << 'EOF'
+          #!/bin/bash
           curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
           chmod +x argocd-linux-amd64
-          sudo mv argocd-linux-amd64 /usr/local/bin/argocd
+          mv argocd-linux-amd64 /usr/local/bin/argocd
           argocd version --client
+          argocd login --insecure --server $ARGOCD_SERVER --auth-token $ARGOCD_AUTH_TOKEN
+          echo "Successfully logged in to ArgoCD server at $ARGOCD_SERVER"
+          EOF
+          chmod +x argocd-login.sh
 
-      - name: Login to ArgoCD
-        run: |
-          argocd login --insecure --server ${{ secrets.ARGOCD_SERVER }} --auth-token ${{ secrets.ARGOCD_AUTH_TOKEN }}
-          echo "Successfully logged in to ArgoCD server at ${{ secrets.ARGOCD_SERVER }}"
+          # Run the script in the container
+          docker run --rm -v $(pwd):/app -w /app \
+            -e ARGOCD_SERVER=${{ secrets.ARGOCD_SERVER }} \
+            -e ARGOCD_AUTH_TOKEN=${{ secrets.ARGOCD_AUTH_TOKEN }} \
+            fastapi-tools ./argocd-login.sh
 
       - name: Deploy with ArgoCD
         run: |
+          # Create a deployment script
+          cat > argocd-deploy.sh << 'EOF'
+          #!/bin/bash
+          set -e
+
           # Set environment-specific variables
-          if [ "${{ github.event.inputs.environment }}" == "staging" ]; then
+          if [ "$ENVIRONMENT" == "staging" ]; then
             APP_NAME="fastapi-staging"
             NAMESPACE="fastapi-helm-staging"
             VALUES_FILE="config/helm/staging.yaml"
-          elif [ "${{ github.event.inputs.environment }}" == "production" ]; then
+          elif [ "$ENVIRONMENT" == "production" ]; then
             APP_NAME="fastapi-prod"
             NAMESPACE="fastapi-helm-prod"
             VALUES_FILE="config/helm/production.yaml"
           else
-            echo "Invalid environment: ${{ github.event.inputs.environment }}"
+            echo "Invalid environment: $ENVIRONMENT"
             exit 1
           fi
 
@@ -58,14 +77,14 @@ jobs:
           if argocd app get $APP_NAME &> /dev/null; then
             echo "Updating existing application $APP_NAME..."
             argocd app set $APP_NAME \
-              --revision ${{ github.event.inputs.branch }} \
+              --revision $BRANCH \
               --values $VALUES_FILE
           else
             echo "Creating new application $APP_NAME..."
             argocd app create $APP_NAME \
               --repo https://github.com/datascientest-fastapi-project-group-25/fastAPI-project-release.git \
               --path charts/fastapi \
-              --revision ${{ github.event.inputs.branch }} \
+              --revision $BRANCH \
               --dest-server https://kubernetes.default.svc \
               --dest-namespace $NAMESPACE \
               --values $VALUES_FILE \
@@ -85,6 +104,16 @@ jobs:
           # Get application status
           echo "Application status:"
           argocd app get $APP_NAME
+          EOF
+          chmod +x argocd-deploy.sh
+
+          # Run the script in the container
+          docker run --rm -v $(pwd):/app -w /app \
+            -e ARGOCD_SERVER=${{ secrets.ARGOCD_SERVER }} \
+            -e ARGOCD_AUTH_TOKEN=${{ secrets.ARGOCD_AUTH_TOKEN }} \
+            -e ENVIRONMENT=${{ github.event.inputs.environment }} \
+            -e BRANCH=${{ github.event.inputs.branch }} \
+            fastapi-tools ./argocd-deploy.sh
 
       - name: Deployment Summary
         run: |

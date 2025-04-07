@@ -1,0 +1,37 @@
+# Git
+.git
+.gitignore
+
+# Docker
+.docker
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# Kubernetes
+.kube
+kubeconfig
+
+# Temporary files
+*.tmp
+*.log
+*.swp
+
+# Build artifacts
+*.yaml
+!charts/**/*.yaml
+!config/**/*.yaml
+!argocd/**/*.yaml
+
+# Node modules (if any)
+node_modules
+
+# Python cache (if any)
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/

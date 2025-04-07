@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  setup:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    privileged: true
+    volumes:
+      - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "0:8081-8085"
+    environment:
+      - ARGOCD_INSTALL_METHOD=kubectl
+    command: ["./scripts/setup-local-k3d-argocd.sh"]

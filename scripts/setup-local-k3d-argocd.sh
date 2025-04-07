@@ -4,25 +4,66 @@
 
 set -e
 
+# Detect if running in CI environment
+is_ci() {
+  [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ] || [ -n "${GITLAB_CI:-}" ] || [ -n "${TRAVIS:-}" ] || [ -n "${JENKINS_URL:-}" ]
+}
+
+# Install tools in CI environment
+install_tools_in_ci() {
+  if is_ci; then
+    echo "CI environment detected, installing required tools automatically..."
+
+    # Install k3d
+    echo "Installing k3d..."
+    curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+
+    # Install kubectl
+    echo "Installing kubectl..."
+    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    chmod +x kubectl
+    sudo mv kubectl /usr/local/bin/
+
+    # Install Helm
+    echo "Installing Helm..."
+    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+    echo "All required tools installed successfully."
+  fi
+}
+
 # Check if required tools are installed
 check_tools() {
   echo "Checking required tools..."
 
+  # Try to install tools in CI environment
+  install_tools_in_ci
+
   if ! command -v k3d &> /dev/null; then
     echo "❌ k3d is not installed. Please install it first."
-    echo "You can install it with: brew install k3d"
+    echo "Installation instructions:"
+    echo "  - macOS: brew install k3d"
+    echo "  - Linux: curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash"
+    echo "  - Windows: choco install k3d"
+    echo "  - Or visit: https://k3d.io/#installation"
     exit 1
   fi
 
   if ! command -v kubectl &> /dev/null; then
     echo "❌ kubectl is not installed. Please install it first."
-    echo "You can install it with: brew install kubectl"
+    echo "Installation instructions:"
+    echo "  - macOS: brew install kubectl"
+    echo "  - Linux: curl -LO \"https://dl.k8s.io/release/stable.txt\" && curl -LO \"https://dl.k8s.io/release/\$(cat stable.txt)/bin/linux/amd64/kubectl\" && chmod +x kubectl && sudo mv kubectl /usr/local/bin/"
+    echo "  - Or visit: https://kubernetes.io/docs/tasks/tools/install-kubectl/"
     exit 1
   fi
 
   if ! command -v helm &> /dev/null; then
     echo "❌ Helm is not installed. Please install it first."
-    echo "You can install it with: brew install helm"
+    echo "Installation instructions:"
+    echo "  - macOS: brew install helm"
+    echo "  - Linux: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
+    echo "  - Or visit: https://helm.sh/docs/intro/install/"
     exit 1
   fi
 
@@ -45,7 +86,8 @@ create_cluster() {
   else
     # Create a new cluster
     # Try different ports in case of conflicts
-    for port in 8081 8082 8083 8084 8085; do
+    # Start with a wider range of ports
+    for port in 8081 8082 8083 8084 8085 8086 8087 8088 8089 8090; do
       echo "Trying to create cluster with port $port..."
       if k3d cluster create argocd-cluster \
         --servers 1 \
@@ -62,11 +104,23 @@ create_cluster() {
       fi
     done
 
-    # Check if cluster was created successfully
+    # If all specific ports failed, try with a random port
     if ! k3d cluster list | grep -q "argocd-cluster"; then
-      echo "❌ Failed to create cluster with any of the attempted ports."
-      echo "Please check if you have any services running on ports 8081-8085."
-      exit 1
+      echo "Trying to create cluster with a random port..."
+      if k3d cluster create argocd-cluster \
+        --servers 1 \
+        --agents 1 \
+        --port "0:80@loadbalancer" \
+        --wait; then
+        # Get the assigned port
+        ASSIGNED_PORT=$(kubectl get svc -n kube-system | grep k3d-argocd-cluster | grep -oE '[0-9]+:[0-9]+' | cut -d':' -f1)
+        echo $ASSIGNED_PORT > /tmp/argocd-cluster-port.txt
+        echo "Cluster created with random port: $ASSIGNED_PORT"
+      else
+        echo "❌ Failed to create cluster with any port."
+        echo "Please check your Docker and network configuration."
+        exit 1
+      fi
     fi
   fi
 
@@ -177,7 +231,9 @@ main() {
   create_cluster
 
   # Install ArgoCD
-  read -p "Install ArgoCD using Helm or kubectl? (helm/kubectl): " install_method
+  # Use environment variable ARGOCD_INSTALL_METHOD if set, otherwise default to kubectl
+  install_method=${ARGOCD_INSTALL_METHOD:-kubectl}
+  echo "Installing ArgoCD using $install_method..."
   if [[ $install_method == "helm" ]]; then
     install_argocd_helm
   else

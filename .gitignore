@@ -5,6 +5,7 @@
 
 # AI tools
 .roo
+.roomodes
 
 # Scripts and temporary files
 get_helm.sh

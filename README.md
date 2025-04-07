@@ -125,6 +125,27 @@ The repository includes several utility scripts to manage deployments:
 ./scripts/cleanup.sh all    # Clean all environments
 ```
 
+### Using Docker (Platform-Agnostic Setup)
+
+For a consistent setup experience across different platforms (Linux, macOS, Windows), you can use the Docker-based setup:
+
+```bash
+# Set up a local k3d cluster using Docker
+make setup-k3d-docker
+```
+
+This method uses a Docker container that includes all the necessary tools (k3d, kubectl, Helm) and runs the setup script inside the container. This approach ensures that the setup process is consistent regardless of the host operating system.
+
+Requirements:
+- Docker
+- Docker Compose
+
+The Docker-based setup automatically:
+1. Builds a container with all required tools
+2. Sets up a local k3d cluster
+3. Installs ArgoCD
+4. Configures the necessary components
+
 ### Using GitHub Actions
 
 The project uses GitHub Actions for CI/CD with the following workflows:
