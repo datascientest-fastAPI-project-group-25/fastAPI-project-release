@@ -30,7 +30,8 @@ jobs:
       - uses: actions/checkout@v3
       - name: Set up Docker
         uses: docker/setup-buildx-action@v2
-      - name: Set up test environment
-        run: make setup-k3d
+      # Skip setup-k3d step as it requires Docker-in-Docker, which is not available in GitHub Actions
+      # - name: Set up test environment
+      #   run: make setup-k3d
       - name: Deploy and test
         run: make template-staging

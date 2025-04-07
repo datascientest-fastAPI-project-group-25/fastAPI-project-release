@@ -2,7 +2,7 @@ name: Helm Chart Deploy
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
     paths:
       - 'charts/fastapi/**'
   workflow_dispatch:

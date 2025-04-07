@@ -1,0 +1,58 @@
+name: PR Creation - with Machine User Token
+# This workflow creates a pull request from a feature or fix branch to the main branch.
+# It is triggered on push events to branches that start with 'feat/' or 'fix/'.
+
+on:
+  push:
+    branches:
+      - 'feat/*'
+      - 'fix/*'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gh
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract branch name
+        shell: bash
+        run: echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
+
+      - name: Determine branch type
+        id: branch-type
+        run: |
+          if [[ "${{ env.BRANCH_NAME }}" == feat/* ]]; then
+            echo "TYPE=feat" >> $GITHUB_ENV
+          elif [[ "${{ env.BRANCH_NAME }}" == fix/* ]]; then
+            echo "TYPE=fix" >> $GITHUB_ENV
+          else
+            echo "TYPE=other" >> $GITHUB_ENV
+          fi
+
+      - name: Create Pull Request to staging
+        id: create-pr
+        uses: devops-infra/action-pull-request@v0.5.4
+        with:
+          github_token: ${{ secrets.MACHINE_USER_TOKEN }}
+          target_branch: main
+          title: "${{ env.TYPE }}: Promote ${{ env.BRANCH_NAME }} to main"
+          body: |
+            This PR promotes branch **${{ env.BRANCH_NAME }}** to **main**.
+
+            _Automated PR created by workflow._
+
+      - name: PR Details
+        if: steps.create-pr.outputs.pull-request-number
+        run: |
+          echo "PR #${{ steps.create-pr.outputs.pull-request-number }} created: ${{ steps.create-pr.outputs.pull-request-url }}"

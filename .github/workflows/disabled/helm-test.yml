@@ -2,7 +2,7 @@ name: Helm Chart Test
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
     paths:
       - 'charts/fastapi/**'
   pull_request:
