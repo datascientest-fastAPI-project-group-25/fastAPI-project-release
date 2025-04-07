@@ -31,6 +31,6 @@ jobs:
       - name: Set up Docker
         uses: docker/setup-buildx-action@v2
       - name: Set up test environment
-        run: make setup-k3d-docker
+        run: make setup-k3d
       - name: Deploy and test
         run: make template-staging
