@@ -119,61 +119,31 @@ const REQUIRED_TOOLS: Tool[] = [
 ];
 
 async function checkTool(tool: Tool): Promise<string | undefined> {
-  // Common paths where tools might be installed
-  const commonPaths = [
-    '/usr/local/bin',
-    '/usr/bin',
-    '/bin',
-    '/opt/homebrew/bin', // Homebrew on Apple Silicon
-    '/usr/local/homebrew/bin', // Homebrew on Intel Mac
-    `${process.env.HOME}/.docker/bin`, // Docker CLI
-    `${process.env.HOME}/.krew/bin`, // kubectl plugins
-    '/Applications/Docker.app/Contents/Resources/bin', // Docker Desktop
-  ];
-
-  // Add PATH environment variable paths
-  if (process.env.PATH) {
-    commonPaths.push(...process.env.PATH.split(':'));
+  try {
+    const checkResult = await execCommand(`command -v ${tool.name}`);
+    logger.info(`[DEBUG] Check '${tool.name}': success=${checkResult.success}, stdout='${checkResult.stdout.trim()}', stderr='${checkResult.stderr.trim()}'`);
+    if (!checkResult.success || !checkResult.stdout.trim()) {
+      return undefined;
+    }
+  } catch (err) {
+    logger.info(`[DEBUG] Check '${tool.name}' threw error: ${err}`);
+    return undefined;
   }
-
-  // Create a unique set of paths
-  const uniquePaths = Array.from(new Set(commonPaths));
 
   try {
-    // First try with current PATH
-    const result = await execCommand(tool.versionCommand);
-    if (result.success) {
+    const versionResult = await execCommand(tool.versionCommand);
+    logger.info(`[DEBUG] Version '${tool.name}': success=${versionResult.success}, stdout='${versionResult.stdout.trim()}', stderr='${versionResult.stderr.trim()}'`);
+    if (versionResult.success) {
       const version = tool.versionExtractor
-        ? tool.versionExtractor(result.stdout.trim())
-        : result.stdout.trim();
+        ? tool.versionExtractor(versionResult.stdout.trim())
+        : versionResult.stdout.trim();
       return version;
     }
-
-    // If not found, try with each additional path
-    for (const path of uniquePaths) {
-      try {
-        const result = await execCommand(`${path}/${tool.name} --version`);
-        if (result.success) {
-          const version = tool.versionExtractor
-            ? tool.versionExtractor(result.stdout.trim())
-            : result.stdout.trim();
-
-          // If found, suggest adding to PATH
-          logger.warn(`${tool.name} was found in ${path} but isn't in your PATH`);
-          logger.info(`Add to your shell profile (~/.zshrc, ~/.bashrc, etc.):`);
-          logger.info(`  export PATH="${path}:$PATH"`);
-
-          return version;
-        }
-      } catch (error) {
-        // Continue trying other paths
-        continue;
-      }
-    }
-  } catch (error) {
-    // Tool not found in any location
+  } catch (err) {
+    logger.info(`[DEBUG] Version '${tool.name}' threw error: ${err}`);
   }
-  return undefined;
+
+  return 'unknown';
 }
 
 async function detectEnvironment(): Promise<Environment> {
@@ -222,15 +192,39 @@ export async function bootstrap(): Promise<void> {
   // Check required tools first
   logger.info('Required Tools:');
   for (const tool of requiredTools) {
-    const version = env[`${tool.name}Version` as keyof Environment];
+    let version = env[`${tool.name}Version` as keyof Environment];
     if (version) {
       logger.success(`✓ ${tool.name}: ${version}`);
     } else {
-      missingRequired = true;
-      logger.error(`✗ ${tool.name}: Not found`);
-      const instructions = getInstallInstructions(tool);
-      logger.info(`  Installation instructions:`);
-      logger.info(`  ${instructions}`);
+      // Special handling for Bun auto-install on macOS/Linux
+      if (tool.name === 'bun' && (platform.isMac || platform.isLinux)) {
+        logger.warn(`⚠️  ${tool.name} not found. Attempting automatic installation...`);
+        const installCmd = tool.installInstructions.mac; // same for mac and linux
+        const result = await execCommand(installCmd);
+        if (result.success) {
+          logger.success(`✓ ${tool.name} installed successfully.`);
+          // Re-check Bun version after install
+          const recheckVersion = await checkTool(tool);
+          if (recheckVersion) {
+            version = recheckVersion;
+            env[`${tool.name}Version` as keyof Environment] = version;
+            logger.success(`✓ ${tool.name}: ${version}`);
+            continue; // Skip missingRequired flag
+          } else {
+            logger.error(`✗ ${tool.name}: Still not found after installation attempt.`);
+          }
+        } else {
+          logger.error(`✗ Failed to install ${tool.name}. Please install it manually.`);
+          logger.info(`  Installation instructions:`);
+          logger.info(`  ${installCmd}`);
+        }
+      } else {
+        missingRequired = true;
+        logger.error(`✗ ${tool.name}: Not found`);
+        const instructions = getInstallInstructions(tool);
+        logger.info(`  Installation instructions:`);
+        logger.info(`  ${instructions}`);
+      }
     }
   }
 
@@ -253,20 +247,29 @@ export async function bootstrap(): Promise<void> {
 
   if (missingRequired) {
     logger.error('❌ Some required tools are missing!');
-    logger.info('Please install the missing required tools and run this command again.');
     if (platform.isMac) {
       logger.info('For Homebrew users on macOS, you can install all required tools with:');
       logger.info('  brew install git docker kubectl k3d helm');
+      logger.info('');
+      logger.info('Note: For Docker, you\'ll need to:');
+      logger.info('1. Download Docker Desktop from https://www.docker.com/products/docker-desktop');
+      logger.info('2. Install and launch Docker Desktop');
+    } else if (platform.isLinux) {
+      logger.info('On Linux, follow the installation instructions above for each tool.');
+      logger.info('Tip: Docker might require additional post-installation steps.');
+    } else if (platform.isWindows) {
+      logger.info('On Windows, follow the installation instructions above for each tool.');
+      logger.info('Tip: Consider using Windows Subsystem for Linux (WSL) for better compatibility.');
     }
     console.log();
-    logger.info('For other installation methods, follow the instructions above for each tool.');
+    logger.info('After installing the tools, run \'make init\' again.');
     process.exit(1);
   } else {
     logger.success('✅ All required tools are installed!');
     if (optionalTools.length > 0 && !foundSomeOptional) {
-      logger.info('Consider installing optional tools for enhanced development experience.');
+      logger.info('💡 Consider installing optional tools for enhanced development experience.');
     }
-    logger.info('You can now proceed with development.');
+    logger.success('🎉 You can now proceed with development. Enjoy!');
   }
 }
 

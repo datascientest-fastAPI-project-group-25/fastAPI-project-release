@@ -10,14 +10,19 @@ export async function execCommand(command: string): Promise<ShellResult> {
     stdout: 'pipe',
     stderr: 'pipe'
   });
-  
-  const stdout = await new Response(proc.stdout).text();
-  const stderr = await new Response(proc.stderr).text();
-  
+
+  const stdoutPromise = new Response(proc.stdout).text();
+  const stderrPromise = new Response(proc.stderr).text();
+
+  // Wait for process to exit
+  const exitCode = await proc.exited;
+  const stdout = await stdoutPromise;
+  const stderr = await stderrPromise;
+
   return {
-    success: proc.exitCode === 0,
+    success: exitCode === 0,
     stdout,
     stderr,
-    code: proc.exitCode ?? -1
+    code: exitCode
   };
 }
