@@ -1,5 +1,14 @@
 # === Portable, CI-ready Makefile ===
 
+# First time setup:
+# Run 'make init' to check and install required tools:
+#   - bun (JavaScript/TypeScript runtime)
+#   - git (Version control)
+#   - docker (Container runtime)
+#   - kubectl (Kubernetes CLI)
+#   - k3d (Local Kubernetes)
+#   - helm (Kubernetes package manager)
+
 # Container images
 K8S_TOOLS_IMAGE = fastapi/k8s-tools:latest
 ARGOCD_TOOLS_IMAGE = fastapi/argocd-tools:latest
@@ -10,6 +19,12 @@ NAMESPACE ?= fastapi
 ENV ?= dev
 BRANCH_NAME ?= 
 NAME ?= 
+
+# === Bootstrap Environment ===
+.PHONY: init
+init:
+	bun run scripts/src/core/bootstrap.ts
+
 
 # === Branch Management ===
 .PHONY: branch feat fix
@@ -30,11 +45,6 @@ fix:
 	else \
 		bun run scripts/src/commands/branch/create.ts fix "$(NAME)"; \
 	fi
-
-# === Bootstrap Environment ===
-.PHONY: init
-init:
-	bun run scripts/src/core/bootstrap.ts
 
 # === Local Kubernetes with k3d ===
 .PHONY: k3d-up k3d-down k3d-status

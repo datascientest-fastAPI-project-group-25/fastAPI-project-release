@@ -8,5 +8,6 @@
 .roomodes
 
 # Scripts and temporary files
+node_modules
 get_helm.sh
 rm

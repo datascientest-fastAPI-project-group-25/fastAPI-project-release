@@ -52,10 +52,29 @@ Detailed documentation is available in the `docs/` directory:
 
 ## Prerequisites
 
+Before you begin, run the initialization script to check and install required tools:
+
+```bash
+make init
+```
+
+This will check for and help you install:
+- Bun (JavaScript/TypeScript runtime)
+- Git (Version control)
+- Docker (Container runtime)
+- Kubectl (Kubernetes CLI)
+- k3d (Local Kubernetes)
+- Helm (Kubernetes package manager)
+
+For macOS users with Homebrew, you can install all required tools with:
+```bash
+brew install git docker kubectl k3d helm
+```
+
+You'll also need:
 - Kubernetes cluster
 - Argo CD installed
 - GitHub Container Registry access
-- Helm v3
 
 ## Release Strategy
 
