@@ -21,8 +21,51 @@ BRANCH_NAME ?=
 NAME ?= 
 
 # === Bootstrap Environment ===
-.PHONY: init
-init:
+.PHONY: detect-os init install-bun
+
+# Detect operating system and architecture
+detect-os:
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		echo "mac"; \
+	elif [ "$$(uname)" = "Linux" ]; then \
+		echo "linux"; \
+	elif [ "$$(uname -o 2>/dev/null)" = "Msys" ] || [ "$$(uname -o 2>/dev/null)" = "Cygwin" ]; then \
+		echo "windows"; \
+	else \
+		echo "unknown"; \
+		exit 1; \
+	fi
+
+# Install Bun based on platform
+install-bun:
+	@if ! command -v bun >/dev/null 2>&1; then \
+		echo "Installing Bun..."; \
+		OS=$$(make -s detect-os); \
+		if [ "$$OS" = "mac" ] || [ "$$OS" = "linux" ]; then \
+			curl -fsSL https://bun.sh/install | bash; \
+			echo "Please open a new terminal or run:"; \
+			echo "source ~/.bashrc   # for bash"; \
+			echo "source ~/.zshrc    # for zsh"; \
+		elif [ "$$OS" = "windows" ]; then \
+			echo "Please install Bun for Windows from: https://bun.sh/install"; \
+			echo "and then run 'make init' again."; \
+			exit 1; \
+		else \
+			echo "Unsupported platform for automatic Bun installation."; \
+			echo "Please visit https://bun.sh/install for manual installation instructions."; \
+			exit 1; \
+		fi; \
+	else \
+		echo "✓ Bun is already installed."; \
+	fi
+
+# Initialize project
+init: install-bun
+	@if ! command -v bun >/dev/null 2>&1; then \
+		echo "Please restart your terminal and run 'make init' again to use the newly installed Bun."; \
+		exit 1; \
+	fi
+	@echo "Running initialization script..."
 	bun run scripts/src/core/bootstrap.ts
 
 
