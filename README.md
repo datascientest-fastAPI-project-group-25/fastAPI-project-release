@@ -52,19 +52,23 @@ Detailed documentation is available in the `docs/` directory:
 
 ## Prerequisites
 
-Before you begin, run the initialization script to check and install required tools:
+The project uses several tools that will be automatically checked and installed as needed. To begin:
 
 ```bash
 make init
 ```
 
-This will check for and help you install:
-- Bun (JavaScript/TypeScript runtime)
-- Git (Version control)
-- Docker (Container runtime)
-- Kubectl (Kubernetes CLI)
-- k3d (Local Kubernetes)
-- Helm (Kubernetes package manager)
+This command will:
+1. Detect your operating system (macOS, Linux, or Windows)
+2. Install Bun (JavaScript/TypeScript runtime) if not present
+3. Check for and help you install other required tools:
+   - Git (Version control)
+   - Docker (Container runtime)
+   - Kubectl (Kubernetes CLI)
+   - k3d (Local Kubernetes)
+   - Helm (Kubernetes package manager)
+
+The initialization process is platform-aware and will provide appropriate installation instructions for your system.
 
 For macOS users with Homebrew, you can install all required tools with:
 ```bash
