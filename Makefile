@@ -1,103 +1,104 @@
-# Makefile for FastAPI Project Release
+# === Portable, CI-ready Makefile ===
 
-# Variables
-HELM_CHART_DIR = charts/fastapi
-STAGING_VALUES = config/helm/staging.yaml
-PRODUCTION_VALUES = config/helm/production.yaml
-NAMESPACE = fastapi-helm
+# Container images
+K8S_TOOLS_IMAGE = fastapi/k8s-tools:latest
+ARGOCD_TOOLS_IMAGE = fastapi/argocd-tools:latest
+TEST_ENV_IMAGE = fastapi/k8s-test:latest
 
-# Docker run command for containerized operations
-DOCKER_IMAGE = fastapi-tools
-DOCKER_RUN = docker run --rm -v $(PWD):/app -w /app $(DOCKER_IMAGE)
+# Environment variables
+NAMESPACE ?= fastapi
+ENV ?= dev
+BRANCH_NAME ?= 
+NAME ?= 
 
-# Default target
-.PHONY: help
-help:
-	@echo "Available targets:"
-	@echo "  help                 - Show this help message"
-	@echo "  build-image	      - Build the Docker tools image"
-	@echo "  lint                 - Lint Helm charts"
-	@echo "  template-staging     - Generate Kubernetes manifests for staging"
-	@echo "  template-production  - Generate Kubernetes manifests for production"
-	@echo "  setup-k3d            - Set up a local k3d cluster"
-	@echo "  setup-k3d-docker     - Set up a local k3d cluster using Docker"
-	@echo "  setup-argocd         - Set up ArgoCD in the local cluster"
-	@echo "  setup-github         - Set up GitHub secrets for ArgoCD"
-	@echo "  deploy-staging       - Deploy to staging environment"
-	@echo "  deploy-production    - Deploy to production environment"
-	@echo "  clean                - Clean up temporary files"
-	@echo "  clean-k3d            - Delete the local k3d cluster"
+# === Branch Management ===
+.PHONY: branch feat fix
 
-# Build the Docker tools image
-.PHONY: build-bild-image
-build-image	 :
-	docker build -t $(DOCKER_IMAGE) .
+branch:
+	bun run scripts/src/commands/branch/create.ts
 
-# Lint Helm charts
-.PHONY: lint
-lint: build-image
-	$(DOCKER_RUN) helm lint $(HELM_CHART_DIR) -f $(STAGING_VALUES)
-	$(DOCKER_RUN) helm lint $(HELM_CHART_DIR) -f $(PRODUCTION_VALUES)
+feat:
+	@if [ -z "$(NAME)" ]; then \
+		bun run scripts/src/commands/branch/create.ts feat; \
+	else \
+		bun run scripts/src/commands/branch/create.ts feat "$(NAME)"; \
+	fi
 
-# Generate Kubernetes manifests
-.PHONY: template-staging
-template-staging: build-image
-	$(DOCKER_RUN) bash -c "helm template fastapi-staging $(HELM_CHART_DIR) -f $(STAGING_VALUES) > /app/staging-manifests.yaml"
-	@echo "Manifests generated at staging-manifests.yaml"
+fix:
+	@if [ -z "$(NAME)" ]; then \
+		bun run scripts/src/commands/branch/create.ts fix; \
+	else \
+		bun run scripts/src/commands/branch/create.ts fix "$(NAME)"; \
+	fi
 
-.PHONY: template-production
-template-production: build-image
-	$(DOCKER_RUN) bash -c "helm template fastapi-production $(HELM_CHART_DIR) -f $(PRODUCTION_VALUES) > /app/production-manifests.yaml"
-	@echo "Manifests generated at production-manifests.yaml"
+# === Bootstrap Environment ===
+.PHONY: init
+init:
+	bun run scripts/src/core/bootstrap.ts
 
-# Set up local k3d cluster
-.PHONY: setup-k3d
-setup-k3d: build-image
-	$(DOCKER_RUN) ./scripts/setup-local-k3d-argocd.sh
+# === Local Kubernetes with k3d ===
+.PHONY: k3d-up k3d-down k3d-status
 
-# Set up local k3d cluster using Docker
-.PHONY: setup-k3d-docker
-setup-k3d-docker:
-	docker-compose up --build
+k3d-up:
+	docker run --rm -v $$HOME/.k3d:/root/.k3d -v /var/run/docker.sock:/var/run/docker.sock $(K8S_TOOLS_IMAGE) k3d cluster create $(NAMESPACE)-cluster
 
-# Set up ArgoCD
-.PHONY: setup-argocd
-setup-argocd: build-image
-	$(DOCKER_RUN) bash -c "kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -"
-	$(DOCKER_RUN) kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-	$(DOCKER_RUN) kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
-	@echo "Waiting for ArgoCD server to be ready..."
-	$(DOCKER_RUN) kubectl wait --for=condition=available --timeout=300s deployment/argocd-server -n argocd
-	@echo "ArgoCD admin password:"
-	$(DOCKER_RUN) bash -c "kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath=\"{.data.password}\" | base64 -d"
-	@echo ""
+k3d-down:
+	docker run --rm -v $$HOME/.k3d:/root/.k3d -v /var/run/docker.sock:/var/run/docker.sock $(K8S_TOOLS_IMAGE) k3d cluster delete $(NAMESPACE)-cluster
 
-# Set up GitHub secrets for ArgoCD
-.PHONY: setup-github
-setup-github: build-image
-	$(DOCKER_RUN) ./scripts/setup-argocd-github.sh
+k3d-status:
+	docker run --rm -v $$HOME/.k3d:/root/.k3d -v /var/run/docker.sock:/var/run/docker.sock $(K8S_TOOLS_IMAGE) k3d cluster list
 
-# Deploy to environments
-.PHONY: deploy-staging
-deploy-staging: build-image template-staging
-	$(DOCKER_RUN) bash -c "kubectl create namespace $(NAMESPACE)-staging --dry-run=client -o yaml | kubectl apply -f -"
-	$(DOCKER_RUN) kubectl apply -f config/argocd/staging.yaml
-	$(DOCKER_RUN) kubectl apply -f /app/staging-manifests.yaml -n $(NAMESPACE)-staging
-	@echo "Deployed to staging environment"
+# === ArgoCD ===
+.PHONY: argocd-install argocd-login argocd-app-sync
 
-.PHONY: deploy-production
-deploy-production: build-image template-production
-	$(DOCKER_RUN) bash -c "kubectl create namespace $(NAMESPACE)-production --dry-run=client -o yaml | kubectl apply -f -"
-	$(DOCKER_RUN) kubectl apply -f config/argocd/production.yaml
-	$(DOCKER_RUN) kubectl apply -f /app/production-manifests.yaml -n $(NAMESPACE)-production
-	@echo "Deployed to production environment"
+argocd-install:
+	docker run --rm -v $$KUBECONFIG:/root/.kube/config $(ARGOCD_TOOLS_IMAGE) kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-# Clean up
-.PHONY: clean
+argocd-login:
+	docker run --rm -it -v $$KUBECONFIG:/root/.kube/config $(ARGOCD_TOOLS_IMAGE) argocd login $(ARGOCD_SERVER) --username admin --password $(ARGOCD_PASSWORD)
+
+argocd-app-sync:
+	docker run --rm -v $$KUBECONFIG:/root/.kube/config $(ARGOCD_TOOLS_IMAGE) argocd app sync $(ARGOCD_APP)
+
+# === Helm ===
+.PHONY: helm-template helm-deploy
+
+helm-template:
+	docker run --rm -v $$PWD:/work -w /work $(K8S_TOOLS_IMAGE) helm template fastapi charts/fastapi -n $(NAMESPACE) > manifests.yaml
+
+helm-deploy:
+	docker run --rm -v $$PWD:/work -w /work $(K8S_TOOLS_IMAGE) kubectl apply -f manifests.yaml -n $(NAMESPACE)
+
+# === Cleanup ===
+.PHONY: clean reset
+
 clean:
-	rm -f staging-manifests.yaml production-manifests.yaml
-	@echo "Cleaned up manifest files"
+	rm -f manifests.yaml
 
-.PHONY: clean-k3d
-clean-k3d: build-image
-	$(DOCKER_RUN) k3d cluster delete argocd-cluster
+reset: k3d-down clean
+
+# === CI Targets ===
+.PHONY: ci-bootstrap ci-deploy
+
+ci-bootstrap:
+	make init
+	bun install
+	bun test
+
+ci-deploy:
+	make helm-template
+	make helm-deploy
+
+# === Usage ===
+# make branch                # Interactive branch creation
+# make feat NAME=feature-x   # Create feature branch
+# make fix NAME=bugfix-y     # Create fix branch
+# make init                  # Bootstrap environment
+# make k3d-up                # Start local k3d cluster
+# make argocd-install        # Install ArgoCD
+# make helm-template         # Render Helm charts
+# make helm-deploy           # Deploy manifests
+# make clean                 # Remove generated files
+# make reset                 # Teardown cluster and clean
+# make ci-bootstrap          # CI: setup and test
+# make ci-deploy             # CI: deploy
