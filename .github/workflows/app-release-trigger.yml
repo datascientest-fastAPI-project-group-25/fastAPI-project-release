@@ -47,7 +47,7 @@ jobs:
             VERSION="${{ github.event.inputs.version }}"
             ENV="${{ github.event.inputs.environment }}"
           fi
-          
+
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "environment=$ENV" >> $GITHUB_OUTPUT
           echo "Using version: $VERSION for environment: $ENV"
@@ -56,7 +56,7 @@ jobs:
         run: |
           ENV="${{ steps.set-version.outputs.environment }}"
           VERSION="${{ steps.set-version.outputs.version }}"
-          
+
           # Map environment to the correct Helm values file
           if [ "$ENV" = "dev" ]; then
             VALUES_FILE="config/helm/dev.yaml"
@@ -68,13 +68,13 @@ jobs:
             echo "Invalid environment: $ENV"
             exit 1
           fi
-          
+
           # Update backend image tag
           yq e -i '.backend.tag = "'$VERSION'"' $VALUES_FILE
-          
+
           # Update frontend image tag
           yq e -i '.frontend.tag = "'$VERSION'"' $VALUES_FILE
-          
+
           echo "Updated image tags in $VALUES_FILE to version $VERSION"
 
       - name: Commit changes
@@ -100,7 +100,7 @@ jobs:
           else
             ENV="${{ github.event.inputs.environment }}"
           fi
-          
+
           # Map environment to ArgoCD application name
           if [ "$ENV" = "dev" ]; then
             APP_NAME="fastapi-app-dev"
@@ -112,7 +112,7 @@ jobs:
             echo "Invalid environment: $ENV"
             exit 1
           fi
-          
+
           echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
           echo "environment=$ENV" >> $GITHUB_OUTPUT
 
@@ -125,7 +125,7 @@ jobs:
       - name: Login to ArgoCD
         run: |
           # Use ArgoCD token from secrets
-          argocd login ${{ secrets.ARGOCD_SERVER }} --username ${{ secrets.ARGOCD_USERNAME }} --password ${{ secrets.ARGOCD_PASSWORD }} --insecure
+          argocd login ${{ secrets.ARGOCD_SERVER }} --auth-token ${{ secrets.ARGOCD_AUTH_TOKEN }} --insecure
 
       - name: Sync ArgoCD application
         run: |
@@ -140,12 +140,12 @@ jobs:
           name: Release v${{ steps.set-env.outputs.version }}
           body: |
             ## Release v${{ steps.set-env.outputs.version }}
-            
+
             This release has been deployed to production via ArgoCD.
-            
+
             ### Docker Images
             The following Docker images are being used:
-            
+
             - Backend: `ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend:${{ steps.set-env.outputs.version }}`
             - Frontend: `ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend:${{ steps.set-env.outputs.version }}`
           draft: false
