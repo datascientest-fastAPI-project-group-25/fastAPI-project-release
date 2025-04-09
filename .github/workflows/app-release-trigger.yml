@@ -1,152 +1,114 @@
-name: Update from App Release
+name: App Release Trigger
 
 on:
   repository_dispatch:
     types: [app-release]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to deploy (e.g., 1.2.3)'
-        required: true
-        type: string
-      environment:
-        description: 'Environment to deploy to (dev, stg, prod)'
-        required: true
-        default: 'prod'
-        type: choice
-        options:
-          - dev
-          - stg
-          - prod
-
-permissions:
-  contents: write
-  packages: read
 
 jobs:
-  update-helm-values:
+  create-release:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          version: 'v3.12.0'
 
-      - name: Install yq
+      - name: Parse payload
+        id: parse
         run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
+          echo "version=${{ github.event.client_payload.version }}" >> $GITHUB_OUTPUT
+          echo "backend_image=${{ github.event.client_payload.backend_image }}" >> $GITHUB_OUTPUT
+          echo "frontend_image=${{ github.event.client_payload.frontend_image }}" >> $GITHUB_OUTPUT
 
-      - name: Set version
-        id: set-version
+      # Create values files for each environment
+      - name: Generate Dev/Staging values
         run: |
-          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            VERSION="${{ github.event.client_payload.version }}"
-            ENV="${{ github.event.client_payload.environment }}"
-          else
-            VERSION="${{ github.event.inputs.version }}"
-            ENV="${{ github.event.inputs.environment }}"
-          fi
+          cat > charts/fastapi-app/values-dev.yaml << EOF
+          backend:
+            image:
+              repository: ${{ steps.parse.outputs.backend_image }}
+              tag: ${{ steps.parse.outputs.version }}-stg
+          frontend:
+            image:
+              repository: ${{ steps.parse.outputs.frontend_image }}
+              tag: ${{ steps.parse.outputs.version }}-stg
+          environment: dev
+          EOF
 
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "environment=$ENV" >> $GITHUB_OUTPUT
-          echo "Using version: $VERSION for environment: $ENV"
+          cat > charts/fastapi-app/values-staging.yaml << EOF
+          backend:
+            image:
+              repository: ${{ steps.parse.outputs.backend_image }}
+              tag: ${{ steps.parse.outputs.version }}-stg
+          frontend:
+            image:
+              repository: ${{ steps.parse.outputs.frontend_image }}
+              tag: ${{ steps.parse.outputs.version }}-stg
+          environment: staging
+          EOF
 
-      - name: Update Helm values with new image tags
+      - name: Generate Production values
         run: |
-          ENV="${{ steps.set-version.outputs.environment }}"
-          VERSION="${{ steps.set-version.outputs.version }}"
+          cat > charts/fastapi-app/values-prod.yaml << EOF
+          backend:
+            image:
+              repository: ${{ steps.parse.outputs.backend_image }}
+              tag: ${{ steps.parse.outputs.version }}
+          frontend:
+            image:
+              repository: ${{ steps.parse.outputs.frontend_image }}
+              tag: ${{ steps.parse.outputs.version }}
+          environment: production
+          EOF
 
-          # Map environment to the correct Helm values file
-          if [ "$ENV" = "dev" ]; then
-            VALUES_FILE="config/helm/dev.yaml"
-          elif [ "$ENV" = "stg" ]; then
-            VALUES_FILE="config/helm/staging.yaml"
-          elif [ "$ENV" = "prod" ]; then
-            VALUES_FILE="config/helm/production.yaml"
-          else
-            echo "Invalid environment: $ENV"
-            exit 1
-          fi
-
-          # Update backend image tag
-          yq e -i '.backend.tag = "'$VERSION'"' $VALUES_FILE
-
-          # Update frontend image tag
-          yq e -i '.frontend.tag = "'$VERSION'"' $VALUES_FILE
-
-          echo "Updated image tags in $VALUES_FILE to version $VERSION"
-
-      - name: Commit changes
+      - name: Package Helm charts
         run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "github-actions@github.com"
-          git add config/helm/*.yaml
-          git commit -m "chore: update image tags to ${{ steps.set-version.outputs.version }} for ${{ steps.set-version.outputs.environment }} environment" || echo "No changes to commit"
-          git push
+          # Package dev chart
+          helm package charts/fastapi-app \
+            --values charts/fastapi-app/values-dev.yaml \
+            --version ${{ steps.parse.outputs.version }} \
+            --app-version ${{ steps.parse.outputs.version }}-stg \
+            -d dist \
+            --destination fastapi-app-dev
 
-  trigger-argocd-sync:
-    needs: update-helm-values
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+          # Package staging chart
+          helm package charts/fastapi-app \
+            --values charts/fastapi-app/values-staging.yaml \
+            --version ${{ steps.parse.outputs.version }} \
+            --app-version ${{ steps.parse.outputs.version }}-stg \
+            -d dist \
+            --destination fastapi-app-staging
 
-      - name: Set environment variables
-        id: set-env
-        run: |
-          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            ENV="${{ github.event.client_payload.environment }}"
-          else
-            ENV="${{ github.event.inputs.environment }}"
-          fi
-
-          # Map environment to ArgoCD application name
-          if [ "$ENV" = "dev" ]; then
-            APP_NAME="fastapi-app-dev"
-          elif [ "$ENV" = "stg" ]; then
-            APP_NAME="fastapi-app-staging"
-          elif [ "$ENV" = "prod" ]; then
-            APP_NAME="fastapi-app"
-          else
-            echo "Invalid environment: $ENV"
-            exit 1
-          fi
-
-          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
-          echo "environment=$ENV" >> $GITHUB_OUTPUT
-
-      - name: Install ArgoCD CLI
-        run: |
-          curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-          sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
-          rm argocd-linux-amd64
-
-      - name: Login to ArgoCD
-        run: |
-          # Use ArgoCD token from secrets
-          argocd login ${{ secrets.ARGOCD_SERVER }} --auth-token ${{ secrets.ARGOCD_AUTH_TOKEN }} --insecure
-
-      - name: Sync ArgoCD application
-        run: |
-          argocd app sync ${{ steps.set-env.outputs.app_name }} --prune
-          argocd app wait ${{ steps.set-env.outputs.app_name }} --health
+          # Package prod chart
+          helm package charts/fastapi-app \
+            --values charts/fastapi-app/values-prod.yaml \
+            --version ${{ steps.parse.outputs.version }} \
+            --app-version ${{ steps.parse.outputs.version }} \
+            -d dist \
+            --destination fastapi-app-prod
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: ${{ steps.set-env.outputs.environment == 'prod' }}
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ steps.set-env.outputs.version }}
-          name: Release v${{ steps.set-env.outputs.version }}
-          body: |
-            ## Release v${{ steps.set-env.outputs.version }}
-
-            This release has been deployed to production via ArgoCD.
-
-            ### Docker Images
-            The following Docker images are being used:
-
-            - Backend: `ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend:${{ steps.set-env.outputs.version }}`
-            - Frontend: `ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend:${{ steps.set-env.outputs.version }}`
-          draft: false
+          tag_name: v${{ steps.parse.outputs.version }}
+          name: Release v${{ steps.parse.outputs.version }}
+          files: |
+            dist/fastapi-app-dev/*.tgz
+            dist/fastapi-app-staging/*.tgz
+            dist/fastapi-app-prod/*.tgz
           generate_release_notes: true
+          body: |
+            ## Environment-specific Helm Charts
+            
+            This release includes Helm charts for the following environments:
+            - Development (using staging images)
+            - Staging
+            - Production
+            
+            ### Image Tags
+            - Dev/Staging: v${{ steps.parse.outputs.version }}-stg
+            - Production: v${{ steps.parse.outputs.version }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
