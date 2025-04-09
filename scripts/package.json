@@ -1,0 +1,19 @@
+{
+  "name": "scripts-next",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "bootstrap": "bun run src/core/bootstrap.ts",
+    "branch": "bun run src/commands/branch/create.ts",
+    "deploy": "bun run src/commands/deploy/execute.ts",
+    "setup:k3d-argocd": "bun run src/commands/deploy/setup-local-k3d-argocd.ts"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "inquirer": "^9.2.12"
+  },
+  "devDependencies": {
+    "@types/node": "latest"
+  }
+}
