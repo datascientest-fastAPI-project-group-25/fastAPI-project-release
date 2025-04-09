@@ -45,7 +45,7 @@ async function main() {
     logger.info(`Application status:`);
     await execCommand(`argocd app get ${appName}`);
 
-    console.log(`Application URL: https://pr-${prNumber}.playground.example.com`);
+    console.log(`Application URL: https://pr-${prNumber}.fastapi-project-release.com`);
     console.log('Note: This URL will only work if DNS is properly configured.');
 }
 

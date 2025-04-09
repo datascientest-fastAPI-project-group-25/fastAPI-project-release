@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/your-org/fastAPI-project-release.git  # Replace with your actual repository URL
+    repoURL: https://github.com/datascientest-fastapi-project-group-25/fastAPI-project-release.git
     targetRevision: automation  # The branch that will be monitored
     path: fastapi-helm
     helm:
@@ -31,7 +31,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/your-org/fastAPI-project-release.git  # Replace with your actual repository URL
+    repoURL: https://github.com/datascientest-fastapi-project-group-25/fastAPI-project-release.git
     targetRevision: stg  # The staging branch
     path: fastapi-helm
     helm:

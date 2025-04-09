@@ -1,0 +1,64 @@
+name: Update Helm Image Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Docker image tag to deploy'
+        required: true
+        type: string
+      env:
+        description: 'Deployment environment (dev, staging, production)'
+        required: true
+        default: production
+        type: string
+  release:
+    types: [published]
+
+jobs:
+  update-helm:
+    runs-on: ubuntu-latest
+    env:
+      GIT_AUTHOR_NAME: github-actions
+      GIT_AUTHOR_EMAIL: github-actions@github.com
+      GIT_COMMITTER_NAME: github-actions
+      GIT_COMMITTER_EMAIL: github-actions@github.com
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Determine tag
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update Helm values with new image tag
+        run: |
+          make update-image TAG="${{ steps.vars.outputs.tag }}" ENV="${{ github.event.inputs.env }}"
+
+      - name: Commit changes
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add config/helm/**/values.yaml
+          git commit -m "chore: update image tag to ${{ steps.vars.outputs.tag }}" || echo "No changes to commit"
+          git push
+
+      - name: Create GitHub Release (only if production and not triggered by release)
+        if: ${{ startsWith(steps.vars.outputs.tag, 'v') && github.event_name != 'release' && (github.event.inputs.env == 'production') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: Release ${{ steps.vars.outputs.tag }}
+          generate_release_notes: true
