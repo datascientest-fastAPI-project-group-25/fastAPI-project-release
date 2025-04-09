@@ -36,21 +36,17 @@ help:
 	@echo ""
 	@echo "Run these awesome commands to boost your workflow! 💪✨"
 	@echo ""
-
 	@echo "===================== Setup & Bootstrap ====================="
 	@echo "init                   Initialize project environment"
 	@echo "install-bun            Install Bun runtime"
-
 	@echo ""
 	@echo "===================== Build & Test =========================="
 	@echo "ci-bootstrap           Run init, install dependencies, and tests (CI)"
 	@echo "ci-deploy              Render Helm templates and deploy (CI)"
-
 	@echo ""
 	@echo "===================== Deployment ============================"
 	@echo "helm-template          Render Helm templates (if defined)"
 	@echo "helm-deploy            Deploy Helm charts (if defined)"
-
 	@echo ""
 	@echo "===================== Kubernetes & Docker ==================="
 	@echo "k3d-up                 Create local k3d Kubernetes cluster"
@@ -59,12 +55,13 @@ help:
 	@echo "argocd-install         Install ArgoCD into Kubernetes cluster"
 	@echo "argocd-login           Log into ArgoCD server"
 	@echo "argocd-app-sync        Sync an ArgoCD application"
-
 	@echo ""
 	@echo "===================== Utilities & Misc ======================"
 	@echo "branch                 Create a new branch interactively"
 	@echo "feat                   Create a new feature branch"
 	@echo "fix                    Create a new fix/bugfix branch"
-
 	@echo ""
 	@echo "Keep rocking! 🤘"
+	
+update-image:
+	yq e -i '.image.tag = "$(TAG)"' config/helm/$(ENV).yaml

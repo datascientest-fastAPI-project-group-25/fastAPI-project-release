@@ -24,3 +24,20 @@ argocd-login:
 
 argocd-app-sync:
 	docker run --rm -v $$KUBECONFIG:/root/.kube/config $(ARGOCD_TOOLS_IMAGE) argocd app sync $(ARGOCD_APP)
+
+# === Update Helm image tags ===
+.PHONY: update-image
+
+update-image:
+	@if [ -z "$$TAG" ]; then \
+		echo "Usage: make update-image TAG=yourtag"; exit 1; \
+	fi; \
+	if echo "$$TAG" | grep -q '^v'; then \
+		ENV=prod; \
+	else \
+		ENV=stg; \
+	fi; \
+	VALUES_FILE=config/helm/$$ENV/values.yaml; \
+	echo "Updating image tag in $$VALUES_FILE to $$TAG"; \
+	yq e -i '.backend.tag = "$(TAG)"' $$VALUES_FILE; \
+	yq e -i '.frontend.tag = "$(TAG)"' $$VALUES_FILE

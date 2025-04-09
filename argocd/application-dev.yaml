@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: fastapi-prod
+  name: fastapi-dev
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -13,10 +13,10 @@ spec:
     path: charts/fastapi
     helm:
       valueFiles:
-        - ../../config/helm/production.yaml
+        - ../../config/helm/dev.yaml
   destination:
     server: https://kubernetes.default.svc
-    namespace: argocd-prod
+    namespace: argocd-dev
   syncPolicy:
     automated:
       prune: true

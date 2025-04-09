@@ -91,7 +91,7 @@ async function main() {
     await execCommand(`echo "${apiKey}" | gh secret set ARGOCD_AUTH_TOKEN -R "${repo}"`);
 
     // Store server URL as GitHub secret
-    const serverUrl = (await question('Enter the ArgoCD server URL (e.g., https://argocd.example.com): ')).trim();
+    const serverUrl = (await question('Enter the ArgoCD server URL (e.g., https://argocd.fastapi-project-release.com): ')).trim();
     await execCommand(`echo "${serverUrl}" | gh secret set ARGOCD_SERVER -R "${repo}"`);
 
     logger.success('ArgoCD API key and server URL stored as GitHub secrets.');
