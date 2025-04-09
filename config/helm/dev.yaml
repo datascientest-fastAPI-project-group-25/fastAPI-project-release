@@ -1,3 +1,33 @@
+# Values for development environment
+app:
+  name: fastapi-app
+  namespace: fastapi-helm-dev
+
+# Backend configuration
+backend:
+  name: backend
+  image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend
+  tag: latest  # This will be updated by the CI pipeline
+  replicas: 1
+  port: 8000
+  service:
+    name: backend-service
+    port: 8000
+    type: ClusterIP
+
+# Frontend configuration
+frontend:
+  name: frontend
+  image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend
+  tag: latest  # This will be updated by the CI pipeline
+  replicas: 1
+  port: 80
+  service:
+    name: frontend-service
+    port: 80
+    type: ClusterIP
+
+# AWS configuration for local development
 aws:
   s3_endpoint: http://localstack:4566
   sqs_endpoint: http://localstack:4566
@@ -5,5 +35,27 @@ aws:
   region: us-east-1
   access_key_id: test
   secret_access_key: test
-image:
-  tag: latest
+
+# Database configuration
+database:
+  name: postgres
+  image: postgres
+  tag: 12
+  storage:
+    size: 1Gi
+  credentials:
+    username: postgres
+    password: postgres
+    database: postgres
+  service:
+    name: postgres
+    port: 5432
+
+# Development-specific settings
+debugMode: true
+livenessProbe:
+  initialDelaySeconds: 10
+  periodSeconds: 10
+readinessProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 10

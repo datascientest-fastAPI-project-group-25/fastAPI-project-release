@@ -1,0 +1,152 @@
+name: Update from App Release
+
+on:
+  repository_dispatch:
+    types: [app-release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy (e.g., 1.2.3)'
+        required: true
+        type: string
+      environment:
+        description: 'Environment to deploy to (dev, stg, prod)'
+        required: true
+        default: 'prod'
+        type: choice
+        options:
+          - dev
+          - stg
+          - prod
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  update-helm-values:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Set version
+        id: set-version
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            VERSION="${{ github.event.client_payload.version }}"
+            ENV="${{ github.event.client_payload.environment }}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+            ENV="${{ github.event.inputs.environment }}"
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "Using version: $VERSION for environment: $ENV"
+
+      - name: Update Helm values with new image tags
+        run: |
+          ENV="${{ steps.set-version.outputs.environment }}"
+          VERSION="${{ steps.set-version.outputs.version }}"
+          
+          # Map environment to the correct Helm values file
+          if [ "$ENV" = "dev" ]; then
+            VALUES_FILE="config/helm/dev.yaml"
+          elif [ "$ENV" = "stg" ]; then
+            VALUES_FILE="config/helm/staging.yaml"
+          elif [ "$ENV" = "prod" ]; then
+            VALUES_FILE="config/helm/production.yaml"
+          else
+            echo "Invalid environment: $ENV"
+            exit 1
+          fi
+          
+          # Update backend image tag
+          yq e -i '.backend.tag = "'$VERSION'"' $VALUES_FILE
+          
+          # Update frontend image tag
+          yq e -i '.frontend.tag = "'$VERSION'"' $VALUES_FILE
+          
+          echo "Updated image tags in $VALUES_FILE to version $VERSION"
+
+      - name: Commit changes
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add config/helm/*.yaml
+          git commit -m "chore: update image tags to ${{ steps.set-version.outputs.version }} for ${{ steps.set-version.outputs.environment }} environment" || echo "No changes to commit"
+          git push
+
+  trigger-argocd-sync:
+    needs: update-helm-values
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set environment variables
+        id: set-env
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            ENV="${{ github.event.client_payload.environment }}"
+          else
+            ENV="${{ github.event.inputs.environment }}"
+          fi
+          
+          # Map environment to ArgoCD application name
+          if [ "$ENV" = "dev" ]; then
+            APP_NAME="fastapi-app-dev"
+          elif [ "$ENV" = "stg" ]; then
+            APP_NAME="fastapi-app-staging"
+          elif [ "$ENV" = "prod" ]; then
+            APP_NAME="fastapi-app"
+          else
+            echo "Invalid environment: $ENV"
+            exit 1
+          fi
+          
+          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+
+      - name: Install ArgoCD CLI
+        run: |
+          curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
+          rm argocd-linux-amd64
+
+      - name: Login to ArgoCD
+        run: |
+          # Use ArgoCD token from secrets
+          argocd login ${{ secrets.ARGOCD_SERVER }} --username ${{ secrets.ARGOCD_USERNAME }} --password ${{ secrets.ARGOCD_PASSWORD }} --insecure
+
+      - name: Sync ArgoCD application
+        run: |
+          argocd app sync ${{ steps.set-env.outputs.app_name }} --prune
+          argocd app wait ${{ steps.set-env.outputs.app_name }} --health
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: ${{ steps.set-env.outputs.environment == 'prod' }}
+        with:
+          tag_name: v${{ steps.set-env.outputs.version }}
+          name: Release v${{ steps.set-env.outputs.version }}
+          body: |
+            ## Release v${{ steps.set-env.outputs.version }}
+            
+            This release has been deployed to production via ArgoCD.
+            
+            ### Docker Images
+            The following Docker images are being used:
+            
+            - Backend: `ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend:${{ steps.set-env.outputs.version }}`
+            - Frontend: `ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend:${{ steps.set-env.outputs.version }}`
+          draft: false
+          generate_release_notes: true

@@ -8,8 +8,8 @@ TEST_ENV_IMAGE = fastapi/k8s-test:latest
 # Environment variables
 NAMESPACE ?= fastapi
 ENV ?= dev
-BRANCH_NAME ?= 
-NAME ?= 
+BRANCH_NAME ?=
+NAME ?=
 
 # Import makefiles
 include make/utils.mk
@@ -62,6 +62,9 @@ help:
 	@echo "fix                    Create a new fix/bugfix branch"
 	@echo ""
 	@echo "Keep rocking! 🤘"
-	
+
 update-image:
-	yq e -i '.image.tag = "$(TAG)"' config/helm/$(ENV).yaml
+	@echo "Updating image tags for $(ENV) environment to $(TAG)"
+	yq e -i '.backend.tag = "$(TAG)"' config/helm/$(ENV).yaml
+	yq e -i '.frontend.tag = "$(TAG)"' config/helm/$(ENV).yaml
+	@echo "Image tags updated successfully"
