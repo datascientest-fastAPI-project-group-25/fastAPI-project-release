@@ -5,7 +5,9 @@ on:
   push:
     branches:
       - 'feat/*'
+      - 'feature/*'
       - 'fix/*'
+      - 'hotfix/*'
 
 permissions:
   contents: write
@@ -31,9 +33,9 @@ jobs:
       - name: Determine branch type
         id: branch-type
         run: |
-          if [[ "${{ env.BRANCH_NAME }}" == feat/* ]]; then
+          if [[ "${{ env.BRANCH_NAME }}" == feat/* ]] || [[ "${{ env.BRANCH_NAME }}" == feature/* ]]; then
             echo "TYPE=feat" >> $GITHUB_ENV
-          elif [[ "${{ env.BRANCH_NAME }}" == fix/* ]]; then
+          elif [[ "${{ env.BRANCH_NAME }}" == fix/* ]] || [[ "${{ env.BRANCH_NAME }}" == hotfix/* ]]; then
             echo "TYPE=fix" >> $GITHUB_ENV
           else
             echo "TYPE=other" >> $GITHUB_ENV
