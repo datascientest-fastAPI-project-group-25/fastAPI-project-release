@@ -4,6 +4,10 @@ on:
   repository_dispatch:
     types: [app-release]
 
+permissions:
+  contents: write
+  packages: read
+
 jobs:
   create-release:
     runs-on: ubuntu-latest
@@ -85,4 +89,4 @@ jobs:
             - Dev/Staging: v${{ steps.parse.outputs.version }}-stg
             - Production: v${{ steps.parse.outputs.version }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
