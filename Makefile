@@ -20,11 +20,13 @@ include make/branch.mk
 # === CI Targets ===
 .PHONY: ci-bootstrap ci-deploy
 
+# Initialize the project environment, install dependencies, and run tests for CI pipelines
 ci-bootstrap:
 	make init
 	bun install
 	bun test
 
+# Render Helm templates and deploy the application as part of CI/CD pipeline
 ci-deploy:
 	make helm-template
 	make helm-deploy

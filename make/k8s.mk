@@ -16,6 +16,9 @@ k3d-status:
 argocd-install:
 	docker run --rm -v $$KUBECONFIG:/root/.kube/config $(ARGOCD_TOOLS_IMAGE) kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
+# WARNING: This target uses ARGOCD_SERVER and ARGOCD_PASSWORD environment variables for authentication.
+# Storing sensitive data like passwords in environment variables is discouraged.
+# Consider using a secret manager or Kubernetes secrets for better security.
 argocd-login:
 	docker run --rm -it -v $$KUBECONFIG:/root/.kube/config $(ARGOCD_TOOLS_IMAGE) argocd login $(ARGOCD_SERVER) --username admin --password $(ARGOCD_PASSWORD)
 
