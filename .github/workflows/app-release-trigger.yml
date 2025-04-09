@@ -15,6 +15,11 @@ jobs:
         with:
           version: 'v3.12.0'
 
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
       - name: Parse payload
         id: parse
         run: |
@@ -27,23 +32,33 @@ jobs:
           # Create dist directories
           mkdir -p dist/fastapi-dev dist/fastapi-staging dist/fastapi-prod
 
+          # First, update the values files with the correct image tags
+          # For dev environment
+          yq e '.backend.tag = "${{ steps.parse.outputs.version }}-stg"' -i config/helm/dev.yaml
+          yq e '.frontend.tag = "${{ steps.parse.outputs.version }}-stg"' -i config/helm/dev.yaml
+
+          # For staging environment
+          yq e '.backend.tag = "${{ steps.parse.outputs.version }}-stg"' -i config/helm/staging.yaml
+          yq e '.frontend.tag = "${{ steps.parse.outputs.version }}-stg"' -i config/helm/staging.yaml
+
+          # For production environment
+          yq e '.backend.tag = "${{ steps.parse.outputs.version }}"' -i config/helm/production.yaml
+          yq e '.frontend.tag = "${{ steps.parse.outputs.version }}"' -i config/helm/production.yaml
+
           # Package dev chart
           helm package charts/fastapi \
-            --values config/helm/dev.yaml \
             --version ${{ steps.parse.outputs.version }} \
             --app-version ${{ steps.parse.outputs.version }}-stg \
             -d dist/fastapi-dev
 
           # Package staging chart
           helm package charts/fastapi \
-            --values config/helm/staging.yaml \
             --version ${{ steps.parse.outputs.version }} \
             --app-version ${{ steps.parse.outputs.version }}-stg \
             -d dist/fastapi-staging
 
           # Package prod chart
           helm package charts/fastapi \
-            --values config/helm/production.yaml \
             --version ${{ steps.parse.outputs.version }} \
             --app-version ${{ steps.parse.outputs.version }} \
             -d dist/fastapi-prod
