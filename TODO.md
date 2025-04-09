@@ -10,11 +10,13 @@
 - [x] Documentation covering container, deployment, and release strategies
 
 ## Open Tasks
+
+See [Infrastructure Setup Guide](docs/infra-setup-guide.md) for detailed Terraform instructions to prepare EKS, Redis, Secrets Manager, and External Secrets integration.
 - [x] Consolidate Helm environment configs to avoid duplication
 - [x] Unify ArgoCD environment configs (choose between `argocd/` and `config/argocd/`)
 - [x] Remove or update `TEMP - Repository Structure.md`
 - [x] Review placeholder URLs and replace with production-ready domains
-- [ ] Implement secret management best practices
+- [x] Implement secret management best practices (see docs/infra-setup-guide.md for External Secrets configuration)
 - [ ] Add more automated tests for deployment scripts
 - [ ] Harden CI/CD pipeline with validation steps
 
