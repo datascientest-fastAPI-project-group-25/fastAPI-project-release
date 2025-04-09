@@ -22,72 +22,31 @@ jobs:
           echo "backend_image=${{ github.event.client_payload.backend_image }}" >> $GITHUB_OUTPUT
           echo "frontend_image=${{ github.event.client_payload.frontend_image }}" >> $GITHUB_OUTPUT
 
-      # Create values files for each environment
-      - name: Generate Dev/Staging values
-        run: |
-          cat > charts/fastapi-app/values-dev.yaml << EOF
-          backend:
-            image:
-              repository: ${{ steps.parse.outputs.backend_image }}
-              tag: ${{ steps.parse.outputs.version }}-stg
-          frontend:
-            image:
-              repository: ${{ steps.parse.outputs.frontend_image }}
-              tag: ${{ steps.parse.outputs.version }}-stg
-          environment: dev
-          EOF
-
-          cat > charts/fastapi-app/values-staging.yaml << EOF
-          backend:
-            image:
-              repository: ${{ steps.parse.outputs.backend_image }}
-              tag: ${{ steps.parse.outputs.version }}-stg
-          frontend:
-            image:
-              repository: ${{ steps.parse.outputs.frontend_image }}
-              tag: ${{ steps.parse.outputs.version }}-stg
-          environment: staging
-          EOF
-
-      - name: Generate Production values
-        run: |
-          cat > charts/fastapi-app/values-prod.yaml << EOF
-          backend:
-            image:
-              repository: ${{ steps.parse.outputs.backend_image }}
-              tag: ${{ steps.parse.outputs.version }}
-          frontend:
-            image:
-              repository: ${{ steps.parse.outputs.frontend_image }}
-              tag: ${{ steps.parse.outputs.version }}
-          environment: production
-          EOF
-
       - name: Package Helm charts
         run: |
+          # Create dist directories
+          mkdir -p dist/fastapi-dev dist/fastapi-staging dist/fastapi-prod
+
           # Package dev chart
-          helm package charts/fastapi-app \
-            --values charts/fastapi-app/values-dev.yaml \
+          helm package charts/fastapi \
+            --values config/helm/dev.yaml \
             --version ${{ steps.parse.outputs.version }} \
             --app-version ${{ steps.parse.outputs.version }}-stg \
-            -d dist \
-            --destination fastapi-app-dev
+            -d dist/fastapi-dev
 
           # Package staging chart
-          helm package charts/fastapi-app \
-            --values charts/fastapi-app/values-staging.yaml \
+          helm package charts/fastapi \
+            --values config/helm/staging.yaml \
             --version ${{ steps.parse.outputs.version }} \
             --app-version ${{ steps.parse.outputs.version }}-stg \
-            -d dist \
-            --destination fastapi-app-staging
+            -d dist/fastapi-staging
 
           # Package prod chart
-          helm package charts/fastapi-app \
-            --values charts/fastapi-app/values-prod.yaml \
+          helm package charts/fastapi \
+            --values config/helm/production.yaml \
             --version ${{ steps.parse.outputs.version }} \
             --app-version ${{ steps.parse.outputs.version }} \
-            -d dist \
-            --destination fastapi-app-prod
+            -d dist/fastapi-prod
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -95,18 +54,18 @@ jobs:
           tag_name: v${{ steps.parse.outputs.version }}
           name: Release v${{ steps.parse.outputs.version }}
           files: |
-            dist/fastapi-app-dev/*.tgz
-            dist/fastapi-app-staging/*.tgz
-            dist/fastapi-app-prod/*.tgz
+            dist/fastapi-dev/*.tgz
+            dist/fastapi-staging/*.tgz
+            dist/fastapi-prod/*.tgz
           generate_release_notes: true
           body: |
             ## Environment-specific Helm Charts
-            
+
             This release includes Helm charts for the following environments:
             - Development (using staging images)
             - Staging
             - Production
-            
+
             ### Image Tags
             - Dev/Staging: v${{ steps.parse.outputs.version }}-stg
             - Production: v${{ steps.parse.outputs.version }}
