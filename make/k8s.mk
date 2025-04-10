@@ -32,7 +32,7 @@ update-image:
 	@if [ -z "$$TAG" ]; then \
 		echo "Usage: make update-image TAG=yourtag ENV=environment"; exit 1; \
 	fi; \
-	@if [ -z "$$ENV" ]; then \
+	if [ -z "$$ENV" ]; then \
 		if echo "$$TAG" | grep -q '^v'; then \
 			ENV=production; \
 		else \
@@ -40,7 +40,7 @@ update-image:
 		fi; \
 		echo "ENV not specified, defaulting to $$ENV based on tag format"; \
 	fi; \
-	@if [ ! -f "config/helm/$$ENV.yaml" ]; then \
+	if [ ! -f "config/helm/$$ENV.yaml" ]; then \
 		echo "Error: config/helm/$$ENV.yaml does not exist"; exit 1; \
 	fi; \
 	echo "Updating image tag in config/helm/$$ENV.yaml to $$TAG"; \
