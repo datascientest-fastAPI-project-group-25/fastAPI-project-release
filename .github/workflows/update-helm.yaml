@@ -28,6 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0  # Fetch all history for proper branch detection
 
       - name: Install yq
         run: |
@@ -121,9 +122,23 @@ jobs:
           yq e '.frontend.tag' config/helm/${{ steps.vars.outputs.env }}.yaml
 
       - name: Commit changes
+        id: commit
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
+
+          # Set default branch to main
+          DEFAULT_BRANCH="main"
+          echo "Default branch: $DEFAULT_BRANCH"
+
+          # Create a new branch for the changes
+          # Use a unique branch name based on the tag and timestamp
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          TAG_SAFE=$(echo "${{ steps.vars.outputs.tag }}" | sed 's/[^a-zA-Z0-9]/-/g')
+          BRANCH_NAME="update-image-${TAG_SAFE}-${TIMESTAMP}"
+
+          echo "Creating new branch: $BRANCH_NAME"
+          git checkout -b $BRANCH_NAME
 
           # Check git status before adding files
           echo "Git status before adding files:"
@@ -141,15 +156,59 @@ jobs:
           echo "Committing changes:"
           if git commit -m "chore: update image tag to ${{ steps.vars.outputs.tag }}"; then
             echo "Changes committed successfully"
-            echo "Pushing changes:"
-            git push
-            echo "Changes pushed successfully"
+            echo "Pushing changes to new branch: $BRANCH_NAME"
+            git push origin $BRANCH_NAME
+            echo "Changes pushed successfully to branch: $BRANCH_NAME"
+            echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+            echo "default_branch=$DEFAULT_BRANCH" >> $GITHUB_OUTPUT
+            echo "has_changes=true" >> $GITHUB_OUTPUT
           else
             echo "No changes to commit. This could mean:"
             echo "1. The tag values were already up to date"
             echo "2. The make update-image command didn't modify any files"
             echo "3. There was an issue with the yq command in the Makefile"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
           fi
+
+      - name: Create Pull Request
+        if: steps.commit.outputs.has_changes == 'true'
+        id: create_pr
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update image tag to ${{ steps.vars.outputs.tag }}"
+          branch: ${{ steps.commit.outputs.branch_name }}
+          base: ${{ steps.commit.outputs.default_branch }}
+          title: "Update image tag to ${{ steps.vars.outputs.tag }}"
+          body: |
+            This PR updates the image tag in the Helm values files to `${{ steps.vars.outputs.tag }}` for the ${{ steps.vars.outputs.env }} environment.
+
+            This PR was automatically created by the update-helm workflow.
+          labels: |
+            automated-pr
+            helm-update
+          delete-branch: true
+
+      - name: Auto-merge Pull Request
+        if: steps.create_pr.outputs.pull-request-number
+        run: |
+          PR_NUMBER=${{ steps.create_pr.outputs.pull-request-number }}
+          echo "Created PR #${PR_NUMBER}"
+
+          # Install GitHub CLI
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          sudo apt update
+          sudo apt install gh
+
+          # Authenticate with GitHub CLI
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+
+          # Enable auto-merge for the PR
+          echo "Enabling auto-merge for PR #${PR_NUMBER}"
+          gh pr merge ${PR_NUMBER} --auto --merge
+
+          echo "Auto-merge enabled for PR #${PR_NUMBER}"
 
       - name: Create GitHub Release (only if production and not triggered by release)
         if: ${{ startsWith(steps.vars.outputs.tag, 'v') && github.event_name != 'release' && (github.event.inputs.env == 'production') }}
