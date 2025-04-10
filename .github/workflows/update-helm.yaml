@@ -13,7 +13,7 @@ on:
         default: production
         type: string
   release:
-    types: [published]
+    types: [published, prereleased]
 
 jobs:
   update-helm:
@@ -92,101 +92,160 @@ jobs:
           echo "Using environment: $(cat $GITHUB_OUTPUT | grep env | cut -d'=' -f2)"
 
       - name: Update Helm values with new image tag
+        id: update_helm
         run: |
-          echo "Running make update-image with TAG=${{ steps.vars.outputs.tag }} ENV=${{ steps.vars.outputs.env }}"
+          echo "::group::Environment and Tag Information"
+          echo "Tag: ${{ steps.vars.outputs.tag }}"
+          echo "Environment: ${{ steps.vars.outputs.env }}"
+          echo "::endgroup::"
 
-          # Check if the values file exists
-          if [ ! -f "config/helm/${{ steps.vars.outputs.env }}.yaml" ]; then
-            echo "::error::Values file config/helm/${{ steps.vars.outputs.env }}.yaml does not exist"
+          echo "::group::Helm Values File Validation"
+          VALUES_FILE="config/helm/${{ steps.vars.outputs.env }}.yaml"
+          if [ ! -f "$VALUES_FILE" ]; then
+            echo "::error::Values file $VALUES_FILE does not exist"
+            echo "Available files in config/helm/:"
             ls -la config/helm/
             exit 1
           fi
+          echo "✅ Values file exists: $VALUES_FILE"
+          echo "::endgroup::"
 
-          # Check current tag values before update
-          echo "Current backend tag in config/helm/${{ steps.vars.outputs.env }}.yaml:"
-          yq e '.backend.tag' config/helm/${{ steps.vars.outputs.env }}.yaml
-          echo "Current frontend tag in config/helm/${{ steps.vars.outputs.env }}.yaml:"
-          yq e '.frontend.tag' config/helm/${{ steps.vars.outputs.env }}.yaml
+          echo "::group::Current Tag Values"
+          CURRENT_BACKEND_TAG=$(yq e '.backend.tag' "$VALUES_FILE" || echo "ERROR")
+          CURRENT_FRONTEND_TAG=$(yq e '.frontend.tag' "$VALUES_FILE" || echo "ERROR")
+          
+          if [[ "$CURRENT_BACKEND_TAG" == "ERROR" || "$CURRENT_FRONTEND_TAG" == "ERROR" ]]; then
+            echo "::error::Failed to read current tag values"
+            exit 1
+          fi
+          
+          echo "Current backend tag: $CURRENT_BACKEND_TAG"
+          echo "Current frontend tag: $CURRENT_FRONTEND_TAG"
+          echo "::endgroup::"
 
-          # Handle staging tags with semantic version (vstg-[GITHASH])
+          echo "::group::Updating Image Tags"
           TAG="${{ steps.vars.outputs.tag }}"
           ENV="${{ steps.vars.outputs.env }}"
 
-          # Run the update-image target
-          make update-image TAG="$TAG" ENV="$ENV"
+          if ! make update-image TAG="$TAG" ENV="$ENV"; then
+            echo "::error::Failed to update image tags"
+            exit 1
+          fi
+          echo "::endgroup::"
 
-          # Check tag values after update
-          echo "New backend tag in config/helm/${{ steps.vars.outputs.env }}.yaml:"
-          yq e '.backend.tag' config/helm/${{ steps.vars.outputs.env }}.yaml
-          echo "New frontend tag in config/helm/${{ steps.vars.outputs.env }}.yaml:"
-          yq e '.frontend.tag' config/helm/${{ steps.vars.outputs.env }}.yaml
+          echo "::group::Verification"
+          NEW_BACKEND_TAG=$(yq e '.backend.tag' "$VALUES_FILE")
+          NEW_FRONTEND_TAG=$(yq e '.frontend.tag' "$VALUES_FILE")
+
+          if [[ "$NEW_BACKEND_TAG" != "$TAG" || "$NEW_FRONTEND_TAG" != "$TAG" ]]; then
+            echo "::error::Tag verification failed!"
+            echo "Expected: $TAG"
+            echo "Got: backend=$NEW_BACKEND_TAG, frontend=$NEW_FRONTEND_TAG"
+            exit 1
+          fi
+
+          echo "✅ Tags successfully updated and verified"
+          echo "Backend: $NEW_BACKEND_TAG"
+          echo "Frontend: $NEW_FRONTEND_TAG"
+          echo "::endgroup::"
+
+          # Set outputs for use in later steps
+          echo "updated=true" >> $GITHUB_OUTPUT
+          echo "old_backend_tag=$CURRENT_BACKEND_TAG" >> $GITHUB_OUTPUT
+          echo "old_frontend_tag=$CURRENT_FRONTEND_TAG" >> $GITHUB_OUTPUT
 
       - name: Commit changes
         id: commit
+        if: steps.update_helm.outputs.updated == 'true'
         run: |
+          echo "::group::Git Configuration"
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
+          echo "::endgroup::"
 
-          # Set default branch to main
           DEFAULT_BRANCH="main"
           echo "Default branch: $DEFAULT_BRANCH"
 
-          # Create a new branch for the changes
-          # Use a unique branch name based on the tag and timestamp
+          echo "::group::Branch Creation"
           TIMESTAMP=$(date +%Y%m%d%H%M%S)
           TAG_SAFE=$(echo "${{ steps.vars.outputs.tag }}" | sed 's/[^a-zA-Z0-9]/-/g')
           BRANCH_NAME="update-image-${TAG_SAFE}-${TIMESTAMP}"
-
           echo "Creating new branch: $BRANCH_NAME"
-          git checkout -b $BRANCH_NAME
+          git checkout -b "$BRANCH_NAME"
+          echo "::endgroup::"
 
-          # Check git status before adding files
-          echo "Git status before adding files:"
+          echo "::group::Git Status and Changes"
           git status
-
-          # Add the files
-          echo "Adding config/helm/*.yaml files to git:"
           git add config/helm/*.yaml
+          
+          COMMIT_MSG=$(cat << 'EOF'
+          chore: update image tags for ${{ steps.vars.outputs.env }} environment
 
-          # Check git status after adding files
-          echo "Git status after adding files:"
-          git status
+          From:
+          - backend: ${{ steps.update_helm.outputs.old_backend_tag }}
+          - frontend: ${{ steps.update_helm.outputs.old_frontend_tag }}
 
-          # Commit and push changes
-          echo "Committing changes:"
-          if git commit -m "chore: update image tag to ${{ steps.vars.outputs.tag }}"; then
-            echo "Changes committed successfully"
-            echo "Pushing changes to new branch: $BRANCH_NAME"
-            git push origin $BRANCH_NAME
-            echo "Changes pushed successfully to branch: $BRANCH_NAME"
-            echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
-            echo "default_branch=$DEFAULT_BRANCH" >> $GITHUB_OUTPUT
-            echo "has_changes=true" >> $GITHUB_OUTPUT
+          To:
+          - backend: ${{ steps.vars.outputs.tag }}
+          - frontend: ${{ steps.vars.outputs.tag }}
+
+          Environment: ${{ steps.vars.outputs.env }}
+          EOF
+          )
+
+          if git commit -m "$COMMIT_MSG"; then
+            echo "✅ Changes committed successfully"
+            if git push origin "$BRANCH_NAME"; then
+              echo "✅ Changes pushed successfully"
+              echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+              echo "default_branch=$DEFAULT_BRANCH" >> $GITHUB_OUTPUT
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+            else
+              echo "::error::Failed to push changes to remote"
+              exit 1
+            fi
           else
-            echo "No changes to commit. This could mean:"
-            echo "1. The tag values were already up to date"
-            echo "2. The make update-image command didn't modify any files"
-            echo "3. There was an issue with the yq command in the Makefile"
+            echo "No changes to commit. Possible reasons:"
+            echo "1. Tags were already up to date"
+            echo "2. No modifications were made to the files"
+            git status
             echo "has_changes=false" >> $GITHUB_OUTPUT
           fi
+          echo "::endgroup::"
 
       - name: Create Pull Request
         if: steps.commit.outputs.has_changes == 'true'
         id: create_pr
-        uses: peter-evans/create-pull-request@v5
+        uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore: update image tag to ${{ steps.vars.outputs.tag }}"
+          commit-message: "chore: update image tags for ${{ steps.vars.outputs.env }} environment"
           branch: ${{ steps.commit.outputs.branch_name }}
           base: ${{ steps.commit.outputs.default_branch }}
-          title: "Update image tag to ${{ steps.vars.outputs.tag }}"
+          title: "Update image tags to ${{ steps.vars.outputs.tag }} for ${{ steps.vars.outputs.env }}"
           body: |
-            This PR updates the image tag in the Helm values files to `${{ steps.vars.outputs.tag }}` for the ${{ steps.vars.outputs.env }} environment.
+            ## Changes Summary
+            This PR updates the image tags in the Helm values files for the **${{ steps.vars.outputs.env }}** environment.
+
+            ### Tag Updates
+            **From:**
+            - Backend: `${{ steps.update_helm.outputs.old_backend_tag }}`
+            - Frontend: `${{ steps.update_helm.outputs.old_frontend_tag }}`
+
+            **To:**
+            - Backend: `${{ steps.vars.outputs.tag }}`
+            - Frontend: `${{ steps.vars.outputs.tag }}`
+
+            ### Additional Information
+            - Environment: `${{ steps.vars.outputs.env }}`
+            - Triggered by: `${{ github.event_name }}`
+            - Workflow run: [View Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
             This PR was automatically created by the update-helm workflow.
           labels: |
             automated-pr
             helm-update
+            env/${{ steps.vars.outputs.env }}
           delete-branch: true
 
       - name: Auto-merge Pull Request
@@ -202,7 +261,7 @@ jobs:
           sudo apt install gh
 
           # Authenticate with GitHub CLI
-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          echo "${{ secrets.MACHINE_USER_TOKEN }}" | gh auth login --with-token
 
           # Enable auto-merge for the PR
           echo "Enabling auto-merge for PR #${PR_NUMBER}"
@@ -212,7 +271,7 @@ jobs:
 
       - name: Create GitHub Release (only if production and not triggered by release)
         if: ${{ startsWith(steps.vars.outputs.tag, 'v') && github.event_name != 'release' && (github.event.inputs.env == 'production') }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.0.2
         with:
           tag_name: ${{ steps.vars.outputs.tag }}
           name: Release ${{ steps.vars.outputs.tag }}
