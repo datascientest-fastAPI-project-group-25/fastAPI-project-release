@@ -34,6 +34,21 @@ jobs:
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
+      - name: Debug Event Information
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "Event action: ${{ github.event.action }}"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "Release tag: ${{ github.event.release.tag_name }}"
+            echo "Release name: ${{ github.event.release.name }}"
+            echo "Release draft: ${{ github.event.release.draft }}"
+            echo "Release prerelease: ${{ github.event.release.prerelease }}"
+          else
+            echo "Workflow dispatch inputs:"
+            echo "  Tag: ${{ github.event.inputs.tag }}"
+            echo "  Environment: ${{ github.event.inputs.env }}"
+          fi
+
       - name: Determine tag and environment
         id: vars
         run: |
@@ -46,9 +61,11 @@ jobs:
             else
               echo "env=staging" >> $GITHUB_OUTPUT
             fi
+            echo "Triggered by release event for tag ${{ github.event.release.tag_name }}"
           else
             echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
             echo "env=${{ github.event.inputs.env }}" >> $GITHUB_OUTPUT
+            echo "Triggered by workflow_dispatch with tag=${{ github.event.inputs.tag }}, env=${{ github.event.inputs.env }}"
           fi
 
           # Print determined values for debugging
@@ -57,15 +74,60 @@ jobs:
 
       - name: Update Helm values with new image tag
         run: |
+          echo "Running make update-image with TAG=${{ steps.vars.outputs.tag }} ENV=${{ steps.vars.outputs.env }}"
+
+          # Check if the values file exists
+          if [ ! -f "config/helm/${{ steps.vars.outputs.env }}.yaml" ]; then
+            echo "::error::Values file config/helm/${{ steps.vars.outputs.env }}.yaml does not exist"
+            ls -la config/helm/
+            exit 1
+          fi
+
+          # Check current tag values before update
+          echo "Current backend tag in config/helm/${{ steps.vars.outputs.env }}.yaml:"
+          yq e '.backend.tag' config/helm/${{ steps.vars.outputs.env }}.yaml
+          echo "Current frontend tag in config/helm/${{ steps.vars.outputs.env }}.yaml:"
+          yq e '.frontend.tag' config/helm/${{ steps.vars.outputs.env }}.yaml
+
+          # Run the update-image target
           make update-image TAG="${{ steps.vars.outputs.tag }}" ENV="${{ steps.vars.outputs.env }}"
+
+          # Check tag values after update
+          echo "New backend tag in config/helm/${{ steps.vars.outputs.env }}.yaml:"
+          yq e '.backend.tag' config/helm/${{ steps.vars.outputs.env }}.yaml
+          echo "New frontend tag in config/helm/${{ steps.vars.outputs.env }}.yaml:"
+          yq e '.frontend.tag' config/helm/${{ steps.vars.outputs.env }}.yaml
 
       - name: Commit changes
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
+
+          # Check git status before adding files
+          echo "Git status before adding files:"
+          git status
+
+          # Add the files
+          echo "Adding config/helm/*.yaml files to git:"
           git add config/helm/*.yaml
-          git commit -m "chore: update image tag to ${{ steps.vars.outputs.tag }}" || echo "No changes to commit"
-          git push
+
+          # Check git status after adding files
+          echo "Git status after adding files:"
+          git status
+
+          # Commit and push changes
+          echo "Committing changes:"
+          if git commit -m "chore: update image tag to ${{ steps.vars.outputs.tag }}"; then
+            echo "Changes committed successfully"
+            echo "Pushing changes:"
+            git push
+            echo "Changes pushed successfully"
+          else
+            echo "No changes to commit. This could mean:"
+            echo "1. The tag values were already up to date"
+            echo "2. The make update-image command didn't modify any files"
+            echo "3. There was an issue with the yq command in the Makefile"
+          fi
 
       - name: Create GitHub Release (only if production and not triggered by release)
         if: ${{ startsWith(steps.vars.outputs.tag, 'v') && github.event_name != 'release' && (github.event.inputs.env == 'production') }}
