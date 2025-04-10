@@ -24,12 +24,57 @@ jobs:
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
-      - name: Parse payload
+      - name: Parse payload and validate version
         id: parse
         run: |
-          echo "version=${{ github.event.client_payload.version }}" >> $GITHUB_OUTPUT
+          # Get the raw version from the payload
+          RAW_VERSION="${{ github.event.client_payload.version }}"
+          echo "raw_version=$RAW_VERSION" >> $GITHUB_OUTPUT
+
+          # Check if semantic_version is provided in the payload
+          if [ -n "${{ github.event.client_payload.semantic_version }}" ]; then
+            echo "Semantic version provided in payload: ${{ github.event.client_payload.semantic_version }}"
+            SEMANTIC_VERSION="${{ github.event.client_payload.semantic_version }}"
+
+            # For staging, append -stg to the semantic version
+            if [[ "${{ github.event.client_payload.environment }}" == "stg" ]]; then
+              VALID_VERSION="${SEMANTIC_VERSION}-stg"
+              echo "Using semantic version with staging suffix: $VALID_VERSION"
+            else
+              VALID_VERSION="$SEMANTIC_VERSION"
+              echo "Using semantic version as is: $VALID_VERSION"
+            fi
+          else
+            # No semantic version provided, fall back to the raw version
+            echo "No semantic version provided in payload, using raw version"
+
+            # Check if the version is a semantic version (matches pattern like 1.2.3 or 1.2.3-stg)
+            if [[ "$RAW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
+              echo "Version $RAW_VERSION is a valid semantic version"
+              VALID_VERSION="$RAW_VERSION"
+            else
+              # If it's not a semantic version (e.g., a git hash or other format)
+              echo "Version $RAW_VERSION is not a valid semantic version"
+
+              # Check if it's a staging version (contains 'stg' or starts with a git hash)
+              if [[ "$RAW_VERSION" == *"stg"* ]] || [[ "${{ github.event.client_payload.environment }}" == "stg" ]]; then
+                # For staging, use 0.0.1 as the base version with the raw version as a prerelease identifier
+                # Replace any characters that aren't allowed in semver with dashes
+                SAFE_VERSION=$(echo "$RAW_VERSION" | sed 's/[^0-9a-zA-Z-]/-/g')
+                VALID_VERSION="0.0.1-$SAFE_VERSION"
+                echo "Converting to valid semantic version for staging: $VALID_VERSION"
+              else
+                # For production, we should have a valid semver, so this is an error
+                echo "::error::Production releases must use semantic versioning (e.g., 1.2.3)"
+                exit 1
+              fi
+            fi
+          fi
+
+          echo "version=$VALID_VERSION" >> $GITHUB_OUTPUT
           echo "backend_image=${{ github.event.client_payload.backend_image }}" >> $GITHUB_OUTPUT
           echo "frontend_image=${{ github.event.client_payload.frontend_image }}" >> $GITHUB_OUTPUT
+          echo "environment=${{ github.event.client_payload.environment }}" >> $GITHUB_OUTPUT
 
       - name: Package Helm charts
         run: |
@@ -126,20 +171,24 @@ jobs:
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
 
+          # Use the raw version for the tag name
+          TAG_NAME="v${{ steps.parse.outputs.raw_version }}"
+          echo "Using tag name: $TAG_NAME"
+
           # Check if tag already exists locally
-          if git rev-parse "v${{ steps.parse.outputs.version }}" >/dev/null 2>&1; then
-            echo "Tag v${{ steps.parse.outputs.version }} already exists locally"
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Tag $TAG_NAME already exists locally"
           else
-            echo "Creating tag v${{ steps.parse.outputs.version }} locally"
-            git tag -a "v${{ steps.parse.outputs.version }}" -m "Release v${{ steps.parse.outputs.version }}"
+            echo "Creating tag $TAG_NAME locally"
+            git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
           fi
 
           # Check if tag exists on remote
-          if git ls-remote --tags origin | grep -q "refs/tags/v${{ steps.parse.outputs.version }}$"; then
-            echo "Tag v${{ steps.parse.outputs.version }} already exists on remote"
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG_NAME$"; then
+            echo "Tag $TAG_NAME already exists on remote"
           else
-            echo "Pushing tag v${{ steps.parse.outputs.version }} to remote"
-            git push origin "v${{ steps.parse.outputs.version }}"
+            echo "Pushing tag $TAG_NAME to remote"
+            git push origin "$TAG_NAME"
           fi
 
       - name: Check if Release Exists
@@ -157,12 +206,16 @@ jobs:
           # Authenticate with GitHub CLI
           echo "${{ secrets.MACHINE_USER_TOKEN }}" | gh auth login --with-token
 
+          # Use the raw version for the release name
+          RELEASE_TAG="v${{ steps.parse.outputs.raw_version }}"
+          echo "Checking for release with tag: $RELEASE_TAG"
+
           # Check if release exists
-          if gh release view "v${{ steps.parse.outputs.version }}" &> /dev/null; then
-            echo "Release v${{ steps.parse.outputs.version }} already exists"
+          if gh release view "$RELEASE_TAG" &> /dev/null; then
+            echo "Release $RELEASE_TAG already exists"
             echo "release_exists=true" >> $GITHUB_OUTPUT
           else
-            echo "Release v${{ steps.parse.outputs.version }} does not exist"
+            echo "Release $RELEASE_TAG does not exist"
             echo "release_exists=false" >> $GITHUB_OUTPUT
           fi
 
@@ -170,15 +223,15 @@ jobs:
         if: steps.check_charts.outputs.charts_exist == 'true' && steps.check_release.outputs.release_exists == 'false'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ steps.parse.outputs.version }}
-          name: Release v${{ steps.parse.outputs.version }}
+          tag_name: v${{ steps.parse.outputs.raw_version }}
+          name: Release v${{ steps.parse.outputs.raw_version }}
           files: |
             dist/fastapi-dev/*.tgz
             dist/fastapi-staging/*.tgz
             dist/fastapi-prod/*.tgz
           generate_release_notes: true
           draft: false
-          prerelease: false
+          prerelease: ${{ github.event.client_payload.environment == 'stg' }}
           body: |
             ## Environment-specific Helm Charts
 
@@ -187,33 +240,42 @@ jobs:
             - Staging
             - Production
 
+            ### Version Information
+            - Raw Version: v${{ steps.parse.outputs.raw_version }}
+            - Semantic Version for Helm: ${{ steps.parse.outputs.version }}
+            - Environment: ${{ steps.parse.outputs.environment }}
+            - Original Semantic Version: ${{ github.event.client_payload.semantic_version }}
+
             ### Image Tags
-            - Dev/Staging: v${{ steps.parse.outputs.version }}-stg
-            - Production: v${{ steps.parse.outputs.version }}
+            - Dev/Staging: ${{ steps.parse.outputs.version }}-stg
+            - Production: ${{ steps.parse.outputs.version }}
         env:
           GITHUB_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
 
       - name: Debug Release Creation
         if: steps.check_charts.outputs.charts_exist == 'true' && steps.check_release.outputs.release_exists == 'false'
         run: |
-          echo "A new GitHub release was created with tag v${{ steps.parse.outputs.version }}"
+          echo "A new GitHub release was created with tag v${{ steps.parse.outputs.raw_version }}"
+          echo "Using semantic version ${{ steps.parse.outputs.version }} for Helm charts"
           echo "This should trigger the update-helm.yaml workflow via the release: [published] event"
           echo "If update-helm.yaml doesn't run, check if the release was actually published (not a draft)"
+          echo "Staging releases are marked as pre-releases: ${{ github.event.client_payload.environment == 'stg' }}"
 
       - name: Update Existing Release
         if: steps.check_charts.outputs.charts_exist == 'true' && steps.check_release.outputs.release_exists == 'true'
         run: |
-          echo "Updating existing release v${{ steps.parse.outputs.version }}..."
+          echo "Updating existing release v${{ steps.parse.outputs.raw_version }}..."
 
           # Upload assets to the existing release
           for file in dist/fastapi-dev/*.tgz dist/fastapi-staging/*.tgz dist/fastapi-prod/*.tgz; do
             if [ -f "$file" ]; then
               echo "Uploading $file to release..."
-              gh release upload "v${{ steps.parse.outputs.version }}" "$file" --clobber
+              gh release upload "v${{ steps.parse.outputs.raw_version }}" "$file" --clobber
             fi
           done
 
           echo "Release assets updated successfully"
+          echo "Note: Updating an existing release may not trigger the update-helm.yaml workflow"
 
       - name: Handle No Charts
         if: steps.check_charts.outputs.charts_exist == 'false'
