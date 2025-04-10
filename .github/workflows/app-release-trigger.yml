@@ -52,19 +52,19 @@ jobs:
           # Package dev chart
           helm package charts/fastapi \
             --version ${{ steps.parse.outputs.version }} \
-            --app-version ${{ steps.parse.outputs.version }}-stg \
+            --app-version "${{ steps.parse.outputs.version }}-stg" \
             -d dist/fastapi-dev
 
           # Package staging chart
           helm package charts/fastapi \
             --version ${{ steps.parse.outputs.version }} \
-            --app-version ${{ steps.parse.outputs.version }}-stg \
+            --app-version "${{ steps.parse.outputs.version }}-stg" \
             -d dist/fastapi-staging
 
           # Package prod chart
           helm package charts/fastapi \
             --version ${{ steps.parse.outputs.version }} \
-            --app-version ${{ steps.parse.outputs.version }} \
+            --app-version "${{ steps.parse.outputs.version }}" \
             -d dist/fastapi-prod
 
       - name: Create GitHub Release
