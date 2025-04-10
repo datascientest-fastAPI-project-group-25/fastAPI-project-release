@@ -67,7 +67,27 @@ jobs:
             --app-version "${{ steps.parse.outputs.version }}" \
             -d dist/fastapi-prod
 
+      - name: Check if charts were packaged
+        id: check_charts
+        run: |
+          # Check if any charts were packaged
+          DEV_CHARTS=$(find dist/fastapi-dev -name "*.tgz" 2>/dev/null | wc -l)
+          STAGING_CHARTS=$(find dist/fastapi-staging -name "*.tgz" 2>/dev/null | wc -l)
+          PROD_CHARTS=$(find dist/fastapi-prod -name "*.tgz" 2>/dev/null | wc -l)
+
+          echo "Found $DEV_CHARTS charts in dev, $STAGING_CHARTS in staging, $PROD_CHARTS in prod"
+
+          TOTAL_CHARTS=$((DEV_CHARTS + STAGING_CHARTS + PROD_CHARTS))
+          if [ "$TOTAL_CHARTS" -eq 0 ]; then
+            echo "No charts were packaged. This might indicate an issue with the Helm package commands."
+            echo "charts_exist=false" >> $GITHUB_OUTPUT
+          else
+            echo "Found $TOTAL_CHARTS charts in total."
+            echo "charts_exist=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Rename and list packaged charts
+        if: steps.check_charts.outputs.charts_exist == 'true'
         run: |
           # Rename charts to include environment
           for file in dist/fastapi-dev/*.tgz; do
@@ -101,14 +121,53 @@ jobs:
           echo "\nPackaged charts in dist/fastapi-prod:"
           ls -la dist/fastapi-prod/
 
-      - name: Create Git Tag
+      - name: Check and Create Git Tag
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
-          git tag -a "v${{ steps.parse.outputs.version }}" -m "Release v${{ steps.parse.outputs.version }}"
-          git push origin "v${{ steps.parse.outputs.version }}"
+
+          # Check if tag already exists locally
+          if git rev-parse "v${{ steps.parse.outputs.version }}" >/dev/null 2>&1; then
+            echo "Tag v${{ steps.parse.outputs.version }} already exists locally"
+          else
+            echo "Creating tag v${{ steps.parse.outputs.version }} locally"
+            git tag -a "v${{ steps.parse.outputs.version }}" -m "Release v${{ steps.parse.outputs.version }}"
+          fi
+
+          # Check if tag exists on remote
+          if git ls-remote --tags origin | grep -q "refs/tags/v${{ steps.parse.outputs.version }}$"; then
+            echo "Tag v${{ steps.parse.outputs.version }} already exists on remote"
+          else
+            echo "Pushing tag v${{ steps.parse.outputs.version }} to remote"
+            git push origin "v${{ steps.parse.outputs.version }}"
+          fi
+
+      - name: Check if Release Exists
+        id: check_release
+        run: |
+          # Install GitHub CLI if not already installed
+          if ! command -v gh &> /dev/null; then
+            echo "Installing GitHub CLI..."
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt update
+            sudo apt install gh
+          fi
+
+          # Authenticate with GitHub CLI
+          echo "${{ secrets.MACHINE_USER_TOKEN }}" | gh auth login --with-token
+
+          # Check if release exists
+          if gh release view "v${{ steps.parse.outputs.version }}" &> /dev/null; then
+            echo "Release v${{ steps.parse.outputs.version }} already exists"
+            echo "release_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Release v${{ steps.parse.outputs.version }} does not exist"
+            echo "release_exists=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Create GitHub Release
+        if: steps.check_charts.outputs.charts_exist == 'true' && steps.check_release.outputs.release_exists == 'false'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.parse.outputs.version }}
@@ -131,3 +190,25 @@ jobs:
             - Production: v${{ steps.parse.outputs.version }}
         env:
           GITHUB_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
+
+      - name: Update Existing Release
+        if: steps.check_charts.outputs.charts_exist == 'true' && steps.check_release.outputs.release_exists == 'true'
+        run: |
+          echo "Updating existing release v${{ steps.parse.outputs.version }}..."
+
+          # Upload assets to the existing release
+          for file in dist/fastapi-dev/*.tgz dist/fastapi-staging/*.tgz dist/fastapi-prod/*.tgz; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file to release..."
+              gh release upload "v${{ steps.parse.outputs.version }}" "$file" --clobber
+            fi
+          done
+
+          echo "Release assets updated successfully"
+
+      - name: Handle No Charts
+        if: steps.check_charts.outputs.charts_exist == 'false'
+        run: |
+          echo "::warning::No charts were packaged. Skipping release creation/update."
+          echo "This might indicate an issue with the Helm package commands or the chart structure."
+          echo "Please check the logs above for any errors related to the Helm package commands."
