@@ -34,24 +34,36 @@ jobs:
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
-      - name: Determine tag
+      - name: Determine tag and environment
         id: vars
         run: |
+          # Determine tag
           if [ "${{ github.event_name }}" = "release" ]; then
             echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+            # For releases, determine environment based on tag format
+            if [[ "${{ github.event.release.tag_name }}" == v* ]]; then
+              echo "env=production" >> $GITHUB_OUTPUT
+            else
+              echo "env=staging" >> $GITHUB_OUTPUT
+            fi
           else
             echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+            echo "env=${{ github.event.inputs.env }}" >> $GITHUB_OUTPUT
           fi
+
+          # Print determined values for debugging
+          echo "Using tag: $(cat $GITHUB_OUTPUT | grep tag | cut -d'=' -f2)"
+          echo "Using environment: $(cat $GITHUB_OUTPUT | grep env | cut -d'=' -f2)"
 
       - name: Update Helm values with new image tag
         run: |
-          make update-image TAG="${{ steps.vars.outputs.tag }}" ENV="${{ github.event.inputs.env }}"
+          make update-image TAG="${{ steps.vars.outputs.tag }}" ENV="${{ steps.vars.outputs.env }}"
 
       - name: Commit changes
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
-          git add config/helm/**/values.yaml
+          git add config/helm/*.yaml
           git commit -m "chore: update image tag to ${{ steps.vars.outputs.tag }}" || echo "No changes to commit"
           git push
 
