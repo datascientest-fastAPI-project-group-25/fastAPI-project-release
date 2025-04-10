@@ -63,9 +63,27 @@ jobs:
             fi
             echo "Triggered by release event for tag ${{ github.event.release.tag_name }}"
           else
-            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-            echo "env=${{ github.event.inputs.env }}" >> $GITHUB_OUTPUT
-            echo "Triggered by workflow_dispatch with tag=${{ github.event.inputs.tag }}, env=${{ github.event.inputs.env }}"
+            TAG="${{ github.event.inputs.tag }}"
+            ENV="${{ github.event.inputs.env }}"
+
+            # Handle the new tag format for staging (vstg-[GITHASH])
+            if [[ "$TAG" == vstg-* ]]; then
+              # This is a staging tag with semantic version
+              ENV="staging"
+              echo "Detected vstg- prefix, setting environment to staging"
+            elif [[ "$TAG" == stg-* ]]; then
+              # This is a regular staging tag
+              ENV="staging"
+              echo "Detected stg- prefix, setting environment to staging"
+            elif [[ "$TAG" == v* ]]; then
+              # This is a production tag
+              ENV="production"
+              echo "Detected v prefix, setting environment to production"
+            fi
+
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+            echo "env=$ENV" >> $GITHUB_OUTPUT
+            echo "Triggered by workflow_dispatch with tag=$TAG, env=$ENV"
           fi
 
           # Print determined values for debugging
@@ -89,8 +107,12 @@ jobs:
           echo "Current frontend tag in config/helm/${{ steps.vars.outputs.env }}.yaml:"
           yq e '.frontend.tag' config/helm/${{ steps.vars.outputs.env }}.yaml
 
+          # Handle staging tags with semantic version (vstg-[GITHASH])
+          TAG="${{ steps.vars.outputs.tag }}"
+          ENV="${{ steps.vars.outputs.env }}"
+
           # Run the update-image target
-          make update-image TAG="${{ steps.vars.outputs.tag }}" ENV="${{ steps.vars.outputs.env }}"
+          make update-image TAG="$TAG" ENV="$ENV"
 
           # Check tag values after update
           echo "New backend tag in config/helm/${{ steps.vars.outputs.env }}.yaml:"
