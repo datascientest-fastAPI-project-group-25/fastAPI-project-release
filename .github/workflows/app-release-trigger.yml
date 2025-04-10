@@ -177,6 +177,8 @@ jobs:
             dist/fastapi-staging/*.tgz
             dist/fastapi-prod/*.tgz
           generate_release_notes: true
+          draft: false
+          prerelease: false
           body: |
             ## Environment-specific Helm Charts
 
@@ -190,6 +192,13 @@ jobs:
             - Production: v${{ steps.parse.outputs.version }}
         env:
           GITHUB_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
+
+      - name: Debug Release Creation
+        if: steps.check_charts.outputs.charts_exist == 'true' && steps.check_release.outputs.release_exists == 'false'
+        run: |
+          echo "A new GitHub release was created with tag v${{ steps.parse.outputs.version }}"
+          echo "This should trigger the update-helm.yaml workflow via the release: [published] event"
+          echo "If update-helm.yaml doesn't run, check if the release was actually published (not a draft)"
 
       - name: Update Existing Release
         if: steps.check_charts.outputs.charts_exist == 'true' && steps.check_release.outputs.release_exists == 'true'
