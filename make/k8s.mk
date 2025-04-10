@@ -30,14 +30,20 @@ argocd-app-sync:
 
 update-image:
 	@if [ -z "$$TAG" ]; then \
-		echo "Usage: make update-image TAG=yourtag"; exit 1; \
+		echo "Usage: make update-image TAG=yourtag ENV=environment"; exit 1; \
 	fi; \
-	if echo "$$TAG" | grep -q '^v'; then \
-		ENV=prod; \
-	else \
-		ENV=stg; \
+	@if [ -z "$$ENV" ]; then \
+		if echo "$$TAG" | grep -q '^v'; then \
+			ENV=production; \
+		else \
+			ENV=staging; \
+		fi; \
+		echo "ENV not specified, defaulting to $$ENV based on tag format"; \
 	fi; \
-	VALUES_FILE=config/helm/$$ENV/values.yaml; \
-	echo "Updating image tag in $$VALUES_FILE to $$TAG"; \
-	yq e -i '.backend.tag = "$(TAG)"' $$VALUES_FILE; \
-	yq e -i '.frontend.tag = "$(TAG)"' $$VALUES_FILE
+	@if [ ! -f "config/helm/$$ENV.yaml" ]; then \
+		echo "Error: config/helm/$$ENV.yaml does not exist"; exit 1; \
+	fi; \
+	echo "Updating image tag in config/helm/$$ENV.yaml to $$TAG"; \
+	yq e -i '.backend.tag = "$(TAG)"' config/helm/$$ENV.yaml; \
+	yq e -i '.frontend.tag = "$(TAG)"' config/helm/$$ENV.yaml; \
+	echo "Image tags updated successfully for $$ENV environment"

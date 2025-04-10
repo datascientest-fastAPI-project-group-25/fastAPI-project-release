@@ -63,8 +63,4 @@ help:
 	@echo ""
 	@echo "Keep rocking! 🤘"
 
-update-image:
-	@echo "Updating image tags for $(ENV) environment to $(TAG)"
-	yq e -i '.backend.tag = "$(TAG)"' config/helm/$(ENV).yaml
-	yq e -i '.frontend.tag = "$(TAG)"' config/helm/$(ENV).yaml
-	@echo "Image tags updated successfully"
+# The update-image target is defined in make/k8s.mk
