@@ -67,6 +67,47 @@ jobs:
             --app-version "${{ steps.parse.outputs.version }}" \
             -d dist/fastapi-prod
 
+      - name: Rename and list packaged charts
+        run: |
+          # Rename charts to include environment
+          for file in dist/fastapi-dev/*.tgz; do
+            if [ -f "$file" ]; then
+              new_name="$(dirname "$file")/$(basename "$file" .tgz)-dev.tgz"
+              mv "$file" "$new_name"
+              echo "Renamed $file to $new_name"
+            fi
+          done
+
+          for file in dist/fastapi-staging/*.tgz; do
+            if [ -f "$file" ]; then
+              new_name="$(dirname "$file")/$(basename "$file" .tgz)-staging.tgz"
+              mv "$file" "$new_name"
+              echo "Renamed $file to $new_name"
+            fi
+          done
+
+          for file in dist/fastapi-prod/*.tgz; do
+            if [ -f "$file" ]; then
+              new_name="$(dirname "$file")/$(basename "$file" .tgz)-prod.tgz"
+              mv "$file" "$new_name"
+              echo "Renamed $file to $new_name"
+            fi
+          done
+
+          echo "Packaged charts in dist/fastapi-dev:"
+          ls -la dist/fastapi-dev/
+          echo "\nPackaged charts in dist/fastapi-staging:"
+          ls -la dist/fastapi-staging/
+          echo "\nPackaged charts in dist/fastapi-prod:"
+          ls -la dist/fastapi-prod/
+
+      - name: Create Git Tag
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git tag -a "v${{ steps.parse.outputs.version }}" -m "Release v${{ steps.parse.outputs.version }}"
+          git push origin "v${{ steps.parse.outputs.version }}"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
