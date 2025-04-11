@@ -145,6 +145,7 @@ jobs:
 
       - name: Create Git Tag
         if: steps.check_charts.outputs.charts_exist == 'true'
+        id: create_tag
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
@@ -155,14 +156,29 @@ jobs:
           # Check if tag already exists
           if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
             echo "Tag $TAG_NAME already exists, skipping tag creation"
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
           else
             git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
             git push origin "$TAG_NAME"
             echo "Created and pushed tag: $TAG_NAME"
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+
+            # Add a small delay to ensure the tag is available for the release
+            echo "Waiting for tag to be available..."
+            sleep 5
+          fi
+
+          # Verify the tag exists remotely
+          if git ls-remote --tags origin | grep -q "$TAG_NAME"; then
+            echo "✓ Verified tag $TAG_NAME exists in remote repository"
+            echo "tag_verified=true" >> $GITHUB_OUTPUT
+          else
+            echo "::warning::Tag $TAG_NAME was not found in remote repository"
+            echo "tag_verified=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Create GitHub Release
-        if: steps.check_charts.outputs.charts_exist == 'true'
+        if: steps.check_charts.outputs.charts_exist == 'true' && steps.create_tag.outputs.tag_verified == 'true'
         uses: softprops/action-gh-release@v2.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
