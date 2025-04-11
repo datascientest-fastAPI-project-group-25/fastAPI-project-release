@@ -229,7 +229,11 @@ jobs:
               filename=$(basename "$chart")
               if ! gh release view "${{ steps.parse.outputs.tag_name }}" | grep -q "$filename"; then
                 echo "Uploading $filename to release..."
-                gh release upload "${{ steps.parse.outputs.tag_name }}" "$chart" --clobber
+                if gh release upload "${{ steps.parse.outputs.tag_name }}" "$chart" --clobber; then
+                  echo "Successfully uploaded $filename"
+                else
+                  echo "::warning::Failed to upload $filename, but continuing with other assets"
+                fi
               else
                 echo "$filename already exists in release, skipping upload"
               fi
