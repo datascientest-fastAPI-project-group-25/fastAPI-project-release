@@ -121,7 +121,17 @@ jobs:
           echo "::endgroup::"
 
           echo "::group::Helm Values File Validation"
-          VALUES_FILE="config/helm/${{ steps.vars.outputs.env }}.yaml"
+          # Normalize environment name for file paths
+          FILE_ENV="${{ steps.vars.outputs.env }}"
+          if [ "${{ steps.vars.outputs.env }}" = "stg" ]; then
+            FILE_ENV="staging"
+            echo "Normalized environment name from 'stg' to 'staging' for file path"
+          elif [ "${{ steps.vars.outputs.env }}" = "prod" ]; then
+            FILE_ENV="production"
+            echo "Normalized environment name from 'prod' to 'production' for file path"
+          fi
+
+          VALUES_FILE="config/helm/$FILE_ENV.yaml"
           if [ ! -f "$VALUES_FILE" ]; then
             echo "::error::Values file $VALUES_FILE does not exist"
             echo "Available files in config/helm/:"
