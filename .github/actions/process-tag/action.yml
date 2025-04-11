@@ -49,12 +49,40 @@ runs:
         # Extract git hash from version string if present
         EXTRACTED_GIT_HASH="$(echo $INPUT_RAW_VERSION | grep -o '[a-f0-9]\{7,40\}' || echo '')"
 
-        # Try to extract semantic version from raw_version if it's not already provided
-        if [[ -z "$INPUT_SEMANTIC_VERSION" || "$INPUT_SEMANTIC_VERSION" == "null" ]]; then
+        # Validate and fix semantic version
+        SEMVER_REGEX='^[0-9]+\.[0-9]+\.[0-9]+$'
+
+        # First check if semantic_version is already valid
+        if [[ "$INPUT_SEMANTIC_VERSION" =~ $SEMVER_REGEX ]]; then
+          echo "Semantic version is already valid: $INPUT_SEMANTIC_VERSION"
+        else
+          echo "Semantic version '$INPUT_SEMANTIC_VERSION' is not valid or empty"
+
+          # Check if semantic_version starts with stg- (common pattern in our workflow)
+          if [[ "$INPUT_SEMANTIC_VERSION" == stg-* ]]; then
+            echo "Semantic version starts with stg- prefix, extracting proper version"
+            # Try to extract a semantic version from it
+            if [[ "$INPUT_SEMANTIC_VERSION" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+              INPUT_SEMANTIC_VERSION="${BASH_REMATCH[1]}"
+              echo "Extracted semantic version $INPUT_SEMANTIC_VERSION from stg- prefixed version"
+            else
+              # If no semantic version found, use default
+              INPUT_SEMANTIC_VERSION="0.1.0"
+              echo "No semantic version found in stg- prefixed version, using default $INPUT_SEMANTIC_VERSION"
+            fi
           # Look for X.Y.Z pattern in raw_version
-          if [[ "$INPUT_RAW_VERSION" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+          elif [[ "$INPUT_RAW_VERSION" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
             INPUT_SEMANTIC_VERSION="${BASH_REMATCH[1]}"
             echo "Extracted semantic version $INPUT_SEMANTIC_VERSION from raw_version"
+          # If no semantic version is found, check if this is a staging build
+          elif [[ "$DEPLOY_ENVIRONMENT" == "stg" || "$DEPLOY_ENVIRONMENT" == "staging" ]]; then
+            # For staging builds, we'll use a default semantic version
+            INPUT_SEMANTIC_VERSION="0.1.0"
+            echo "Using default semantic version $INPUT_SEMANTIC_VERSION for staging build"
+          else
+            # Last resort for production: use a default version
+            INPUT_SEMANTIC_VERSION="0.1.0"
+            echo "Using default semantic version $INPUT_SEMANTIC_VERSION as last resort"
           fi
         fi
 
@@ -116,9 +144,9 @@ runs:
             echo "semver_clean=$INPUT_SEMANTIC_VERSION" >> $GITHUB_OUTPUT
           else
             # Fallback to a default version if no valid semver is provided
-            echo "::warning::No valid semantic version found in payload, using default 0.0.0-stg"
-            PROCESSED_VERSION="0.0.0-stg"
-            echo "semver_clean=0.0.0" >> $GITHUB_OUTPUT
+            echo "::warning::No valid semantic version found in payload, using default 0.1.0-stg"
+            PROCESSED_VERSION="0.1.0-stg"
+            echo "semver_clean=0.1.0" >> $GITHUB_OUTPUT
           fi
         else
           echo "::error::Unknown environment: '$DEPLOY_ENVIRONMENT' (normalized to '$NORMALIZED_ENV')"
