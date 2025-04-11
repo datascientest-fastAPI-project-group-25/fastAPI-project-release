@@ -33,9 +33,9 @@ jobs:
           echo "backend_image: '${{ github.event.client_payload.backend_image }}'"
           echo "frontend_image: '${{ github.event.client_payload.frontend_image }}'"
 
-      - name: Process tag using reusable workflow
+      - name: Process tag using local action
         id: process-tag
-        uses: ./.github/workflows/process-tag.yml
+        uses: ./.github/actions/process-tag
         with:
           raw_version: ${{ github.event.client_payload.version }}
           environment: ${{ github.event.client_payload.environment }}

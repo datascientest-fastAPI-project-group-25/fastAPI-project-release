@@ -103,9 +103,9 @@ jobs:
           echo "Using environment: $ENV"
           echo "Using semantic version: $SEMVER"
 
-      - name: Process tag using reusable workflow
+      - name: Process tag using local action
         id: process-tag
-        uses: ./.github/workflows/process-tag.yml
+        uses: ./.github/actions/process-tag
         with:
           raw_version: ${{ steps.vars.outputs.raw_version }}
           environment: ${{ steps.vars.outputs.env }}
