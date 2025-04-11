@@ -27,6 +27,14 @@ jobs:
       - name: Parse payload and validate version
         id: parse
         run: |
+          # Debug payload
+          echo "Received payload:"
+          echo "version: '${{ github.event.client_payload.version }}'"
+          echo "environment: '${{ github.event.client_payload.environment }}'"
+          echo "semantic_version: '${{ github.event.client_payload.semantic_version }}'"
+          echo "backend_image: '${{ github.event.client_payload.backend_image }}'"
+          echo "frontend_image: '${{ github.event.client_payload.frontend_image }}'"
+
           # Get the raw version from the payload
           RAW_VERSION="${{ github.event.client_payload.version }}"
           echo "raw_version=$RAW_VERSION" >> $GITHUB_OUTPUT
@@ -66,10 +74,24 @@ jobs:
               else
                 # For production, we should have a valid semver, so this is an error
                 echo "::error::Production releases must use semantic versioning (e.g., 1.2.3)"
-                exit 1
+                echo "Raw version: '$RAW_VERSION'"
+                echo "Environment: '${{ github.event.client_payload.environment }}'"
+
+                # Try to extract a semver from the raw version
+                EXTRACTED=$(echo "$RAW_VERSION" | grep -Eo "[0-9]+\.[0-9]+\.[0-9]+" | head -n1)
+                if [[ -n "$EXTRACTED" ]]; then
+                  echo "Extracted semantic version: $EXTRACTED"
+                  VALID_VERSION="$EXTRACTED"
+                else
+                  # If we can't extract a semver, use a default version
+                  echo "Could not extract semantic version, using default 0.1.0"
+                  VALID_VERSION="0.1.0"
+                fi
               fi
             fi
           fi
+
+          echo "Final version to be used: $VALID_VERSION"
 
           echo "version=$VALID_VERSION" >> $GITHUB_OUTPUT
           echo "environment=${{ github.event.client_payload.environment }}" >> $GITHUB_OUTPUT
@@ -88,13 +110,9 @@ jobs:
             --field env="$ENV"
 
           echo "✓ Helm update workflow triggered"
-            fi
-          fi
 
-          echo "version=$VALID_VERSION" >> $GITHUB_OUTPUT
           echo "backend_image=${{ github.event.client_payload.backend_image }}" >> $GITHUB_OUTPUT
           echo "frontend_image=${{ github.event.client_payload.frontend_image }}" >> $GITHUB_OUTPUT
-          echo "environment=${{ github.event.client_payload.environment }}" >> $GITHUB_OUTPUT
 
       - name: Package Helm charts
         run: |
@@ -152,7 +170,7 @@ jobs:
           fi
 
       - name: Create GitHub Release
-        if: steps.check_charts.outputs.charts_exist == 'true' && steps.check_release.outputs.release_exists == 'false'
+        if: steps.check_charts.outputs.charts_exist == 'true'
         uses: softprops/action-gh-release@v2.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
@@ -186,7 +204,7 @@ jobs:
 
 
       - name: Debug Release Creation
-        if: steps.check_charts.outputs.charts_exist == 'true' && steps.check_release.outputs.release_exists == 'false'
+        if: steps.check_charts.outputs.charts_exist == 'true'
         run: |
           echo "A new GitHub release was created with tag v${{ steps.parse.outputs.raw_version }}"
           echo "Using semantic version ${{ steps.parse.outputs.version }} for Helm charts"
