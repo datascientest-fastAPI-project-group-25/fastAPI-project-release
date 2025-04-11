@@ -93,14 +93,17 @@ runs:
           fi
         elif [[ "$NORMALIZED_ENV" == "stg" ]]; then
           echo "Processing staging environment..."
-          # For staging, use the semantic version with -stg suffix
+          # For staging, use the semantic version with -stg suffix if available
           if [[ "$INPUT_SEMANTIC_VERSION" =~ $SEMVER_PATTERN ]]; then
             echo "Using semantic_version from payload with -stg suffix: $INPUT_SEMANTIC_VERSION-stg"
             PROCESSED_VERSION="$INPUT_SEMANTIC_VERSION-stg"
+            # Store the clean semantic version for later use in tag generation
+            echo "semver_clean=$INPUT_SEMANTIC_VERSION" >> $GITHUB_OUTPUT
           else
             # Fallback to a default version if no valid semver is provided
             echo "::warning::No valid semantic version found in payload, using default 0.0.0-stg"
             PROCESSED_VERSION="0.0.0-stg"
+            echo "semver_clean=0.0.0" >> $GITHUB_OUTPUT
           fi
         else
           echo "::error::Unknown environment: '$DEPLOY_ENVIRONMENT' (normalized to '$NORMALIZED_ENV')"
@@ -122,12 +125,30 @@ runs:
         # Generate a tag name for the release based on environment
         RELEASE_TAG_NAME=""
         if [[ "$NORMALIZED_ENV" == "stg" ]]; then
-          # For staging, prefer using the git hash if available
+          # For staging, create a tag that includes both semver and git hash if available
           if [[ -n "$EXTRACTED_GIT_HASH" ]]; then
             # Use only first 7 characters of git hash
             SHORT_HASH="${EXTRACTED_GIT_HASH:0:7}"
-            RELEASE_TAG_NAME="vstg-$SHORT_HASH"
-            echo "Using git hash for tag name: $RELEASE_TAG_NAME"
+
+            # Get the semantic version from the output or input
+            SEMVER_FOR_TAG=""
+            if [[ -n "$(grep -o 'semver_clean=[0-9]\+\.[0-9]\+\.[0-9]\+' <<< "$(cat $GITHUB_OUTPUT)" | cut -d= -f2)" ]]; then
+              SEMVER_FOR_TAG="$(grep -o 'semver_clean=[0-9]\+\.[0-9]\+\.[0-9]\+' <<< "$(cat $GITHUB_OUTPUT)" | cut -d= -f2)"
+              echo "Using semantic version from output: $SEMVER_FOR_TAG"
+            elif [[ "$INPUT_SEMANTIC_VERSION" =~ $SEMVER_PATTERN ]]; then
+              SEMVER_FOR_TAG="$INPUT_SEMANTIC_VERSION"
+              echo "Using semantic version from input: $SEMVER_FOR_TAG"
+            fi
+
+            # Create tag with semver and hash if semver is available
+            if [[ -n "$SEMVER_FOR_TAG" ]]; then
+              RELEASE_TAG_NAME="vstg-$SEMVER_FOR_TAG-$SHORT_HASH"
+              echo "Using semantic version and git hash for tag name: $RELEASE_TAG_NAME"
+            else
+              # Fallback to just hash if no semver is available
+              RELEASE_TAG_NAME="vstg-$SHORT_HASH"
+              echo "Using git hash for tag name: $RELEASE_TAG_NAME"
+            fi
           else
             # Fallback to version-based tag if no git hash is available
             RELEASE_TAG_NAME="vstg-$(echo $PROCESSED_VERSION | sed 's/\./\-/g')"
@@ -146,7 +167,14 @@ runs:
 
         # For staging releases with vstg- prefix, check if we can extract a semantic version
         if [[ "$RELEASE_TAG_NAME" == vstg-* ]]; then
-          if [[ "$RELEASE_TAG_NAME" =~ vstg-([0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
+          # Try to extract semantic version from tag with format vstg-1.2.3-hash
+          if [[ "$RELEASE_TAG_NAME" =~ vstg-([0-9]+\.[0-9]+\.[0-9]+)-([a-f0-9]+)$ ]]; then
+            # Extract semantic version from tag if it contains one
+            EXTRACTED_TAG_VERSION="${BASH_REMATCH[1]}"
+            HELM_DEPLOY_TAG="$EXTRACTED_TAG_VERSION"
+            echo "Extracted semantic version $EXTRACTED_TAG_VERSION from tag $RELEASE_TAG_NAME"
+          # Try to extract semantic version from tag with format vstg-1.2.3
+          elif [[ "$RELEASE_TAG_NAME" =~ vstg-([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
             # Extract semantic version from tag if it contains one
             EXTRACTED_TAG_VERSION="${BASH_REMATCH[1]}"
             HELM_DEPLOY_TAG="$EXTRACTED_TAG_VERSION"

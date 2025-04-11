@@ -296,10 +296,33 @@ jobs:
 
           echo "Auto-merge enabled for PR #${PR_NUMBER}"
 
-      - name: Create GitHub Release (only if production and not triggered by release)
-        if: ${{ startsWith(steps.vars.outputs.tag, 'v') && github.event_name != 'release' && (github.event.inputs.env == 'production') }}
+      - name: Create GitHub Release (if not triggered by release)
+        if: ${{ github.event_name != 'release' }}
         uses: softprops/action-gh-release@v2.0.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
         with:
-          tag_name: ${{ steps.vars.outputs.tag }}
-          name: Release ${{ steps.vars.outputs.tag }}
+          tag_name: ${{ steps.process-tag.outputs.tag_name }}
+          name: Release ${{ steps.process-tag.outputs.tag_name }}
           generate_release_notes: true
+          draft: false
+          prerelease: ${{ steps.vars.outputs.env == 'staging' }}
+          body: |
+            ## Helm Chart Update
+
+            This release updates the Helm charts for the **${{ steps.vars.outputs.env }}** environment.
+
+            ### Version Information
+            - Environment: ${{ steps.vars.outputs.env }}
+            - Helm Chart Version: ${{ steps.process-tag.outputs.version }}
+            - Image Tag: ${{ steps.process-tag.outputs.deploy_tag }}
+            - Git Hash: ${{ steps.process-tag.outputs.git_hash }}
+
+            ### Changes
+            Updated image tags in Helm values from:
+            - Backend: `${{ steps.update_helm.outputs.old_backend_tag }}`
+            - Frontend: `${{ steps.update_helm.outputs.old_frontend_tag }}`
+
+            To:
+            - Backend: `${{ steps.update_helm.outputs.deploy_tag }}`
+            - Frontend: `${{ steps.update_helm.outputs.deploy_tag }}`
