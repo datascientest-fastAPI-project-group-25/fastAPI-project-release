@@ -38,27 +38,37 @@ runs:
         INPUT_RAW_VERSION="${{ inputs.raw_version }}"
         INPUT_SEMANTIC_VERSION="${{ inputs.semantic_version }}"
         DEPLOY_ENVIRONMENT="${{ inputs.environment }}"
-        
+
         # Constants and regex patterns
         SEMVER_PATTERN='^[0-9]+\.[0-9]+\.[0-9]+$'
         HELM_VERSION_PATTERN="^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$"
-        
+
         # Initialize output variables
         PROCESSED_VERSION=""
-        
+
         # Extract git hash from version string if present
         EXTRACTED_GIT_HASH="$(echo $INPUT_RAW_VERSION | grep -o '[a-f0-9]\{7,40\}' || echo '')"
-        
+
         echo "git_hash=$EXTRACTED_GIT_HASH" >> $GITHUB_OUTPUT
-        
+
         echo "Processing inputs:"
         echo "- Raw version: $INPUT_RAW_VERSION"
         echo "- Semantic version: $INPUT_SEMANTIC_VERSION"
         echo "- Environment: $DEPLOY_ENVIRONMENT"
         echo "- Extracted git hash: $EXTRACTED_GIT_HASH"
-        
+
+        # Normalize environment name
+        NORMALIZED_ENV="$DEPLOY_ENVIRONMENT"
+        if [[ "$DEPLOY_ENVIRONMENT" == "staging" ]]; then
+          NORMALIZED_ENV="stg"
+          echo "Normalized environment name from 'staging' to 'stg'"
+        elif [[ "$DEPLOY_ENVIRONMENT" == "production" ]]; then
+          NORMALIZED_ENV="prod"
+          echo "Normalized environment name from 'production' to 'prod'"
+        fi
+
         # Process version based on environment
-        if [[ "$DEPLOY_ENVIRONMENT" == "prod" ]]; then
+        if [[ "$NORMALIZED_ENV" == "prod" ]]; then
           echo "Processing production environment..."
           # For production, we need a strict X.Y.Z semantic version
           if [[ "$INPUT_SEMANTIC_VERSION" =~ $SEMVER_PATTERN ]]; then
@@ -81,7 +91,7 @@ runs:
               exit 1
             fi
           fi
-        elif [[ "$DEPLOY_ENVIRONMENT" == "stg" ]]; then
+        elif [[ "$NORMALIZED_ENV" == "stg" ]]; then
           echo "Processing staging environment..."
           # For staging, use the semantic version with -stg suffix
           if [[ "$INPUT_SEMANTIC_VERSION" =~ $SEMVER_PATTERN ]]; then
@@ -93,11 +103,11 @@ runs:
             PROCESSED_VERSION="0.0.0-stg"
           fi
         else
-          echo "::error::Unknown environment: '$DEPLOY_ENVIRONMENT'"
-          echo "::error::Environment must be either 'stg' or 'prod'"
+          echo "::error::Unknown environment: '$DEPLOY_ENVIRONMENT' (normalized to '$NORMALIZED_ENV')"
+          echo "::error::Environment must be one of: 'stg', 'staging', 'prod', 'production'"
           exit 1
         fi
-        
+
         # Final validation against Helm requirements
         if ! echo "$PROCESSED_VERSION" | grep -Eq "$HELM_VERSION_PATTERN"; then
           echo "::error::Invalid final version format for Helm: '$PROCESSED_VERSION'"
@@ -105,13 +115,13 @@ runs:
           echo "::error::Examples of valid versions: 1.2.3, 1.2.3-alpha, 1.2.3-stg"
           exit 1
         fi
-        
+
         echo "Final Helm version to be used: $PROCESSED_VERSION"
         echo "version=$PROCESSED_VERSION" >> $GITHUB_OUTPUT
-        
+
         # Generate a tag name for the release based on environment
         RELEASE_TAG_NAME=""
-        if [[ "$DEPLOY_ENVIRONMENT" == "stg" ]]; then
+        if [[ "$NORMALIZED_ENV" == "stg" ]]; then
           # For staging, prefer using the git hash if available
           if [[ -n "$EXTRACTED_GIT_HASH" ]]; then
             # Use only first 7 characters of git hash
@@ -128,12 +138,12 @@ runs:
           RELEASE_TAG_NAME="v$PROCESSED_VERSION"
           echo "Using production tag name: $RELEASE_TAG_NAME"
         fi
-        
+
         echo "tag_name=$RELEASE_TAG_NAME" >> $GITHUB_OUTPUT
-        
+
         # Determine the tag to use for Helm deployments
         HELM_DEPLOY_TAG="$PROCESSED_VERSION"
-        
+
         # For staging releases with vstg- prefix, check if we can extract a semantic version
         if [[ "$RELEASE_TAG_NAME" == vstg-* ]]; then
           if [[ "$RELEASE_TAG_NAME" =~ vstg-([0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
@@ -146,5 +156,5 @@ runs:
             echo "Using processed version for Helm deployment: $HELM_DEPLOY_TAG"
           fi
         fi
-        
+
         echo "deploy_tag=$HELM_DEPLOY_TAG" >> $GITHUB_OUTPUT
