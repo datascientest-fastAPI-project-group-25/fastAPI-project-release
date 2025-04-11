@@ -345,17 +345,23 @@ jobs:
           if gh release view "${{ steps.process-tag.outputs.tag_name }}" &>/dev/null; then
             echo "Release ${{ steps.process-tag.outputs.tag_name }} already exists, updating it..."
             # Update existing release
-            gh release edit "${{ steps.process-tag.outputs.tag_name }}" \
+            if gh release edit "${{ steps.process-tag.outputs.tag_name }}" \
               --title "Release ${{ steps.process-tag.outputs.tag_name }}" \
               --notes-file release_notes.md \
-              ${{ steps.vars.outputs.env == 'staging' && '--prerelease' || '' }}
-            echo "✅ GitHub release updated successfully!"
+              ${{ steps.vars.outputs.env == 'staging' && '--prerelease' || '' }}; then
+              echo "✅ GitHub release updated successfully!"
+            else
+              echo "::warning::Failed to update release, but continuing workflow"
+            fi
           else
             # Create new release
-            gh release create "${{ steps.process-tag.outputs.tag_name }}" \
+            if gh release create "${{ steps.process-tag.outputs.tag_name }}" \
               --title "Release ${{ steps.process-tag.outputs.tag_name }}" \
               --notes-file release_notes.md \
               --generate-notes \
-              ${{ steps.vars.outputs.env == 'staging' && '--prerelease' || '' }}
-            echo "✅ GitHub release created successfully!"
+              ${{ steps.vars.outputs.env == 'staging' && '--prerelease' || '' }}; then
+              echo "✅ GitHub release created successfully!"
+            else
+              echo "::warning::Failed to create release, but continuing workflow"
+            fi
           fi
