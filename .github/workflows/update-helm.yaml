@@ -341,11 +341,21 @@ jobs:
           - Frontend: \`${{ steps.update_helm.outputs.deploy_tag }}\`
           EOF
 
-          # Create the release
-          gh release create "${{ steps.process-tag.outputs.tag_name }}" \
-            --title "Release ${{ steps.process-tag.outputs.tag_name }}" \
-            --notes-file release_notes.md \
-            --generate-notes \
-            ${{ steps.vars.outputs.env == 'staging' && '--prerelease' || '' }}
-
-          echo "✅ GitHub release created successfully!"
+          # Check if release already exists
+          if gh release view "${{ steps.process-tag.outputs.tag_name }}" &>/dev/null; then
+            echo "Release ${{ steps.process-tag.outputs.tag_name }} already exists, updating it..."
+            # Update existing release
+            gh release edit "${{ steps.process-tag.outputs.tag_name }}" \
+              --title "Release ${{ steps.process-tag.outputs.tag_name }}" \
+              --notes-file release_notes.md \
+              ${{ steps.vars.outputs.env == 'staging' && '--prerelease' || '' }}
+            echo "✅ GitHub release updated successfully!"
+          else
+            # Create new release
+            gh release create "${{ steps.process-tag.outputs.tag_name }}" \
+              --title "Release ${{ steps.process-tag.outputs.tag_name }}" \
+              --notes-file release_notes.md \
+              --generate-notes \
+              ${{ steps.vars.outputs.env == 'staging' && '--prerelease' || '' }}
+            echo "✅ GitHub release created successfully!"
+          fi
