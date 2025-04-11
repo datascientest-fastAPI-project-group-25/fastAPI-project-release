@@ -24,7 +24,7 @@ jobs:
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
-      - name: Parse payload and validate version
+      - name: Parse payload and validate version for Helm
         id: parse
         run: |
           # Debug payload
@@ -35,62 +35,62 @@ jobs:
           echo "backend_image: '${{ github.event.client_payload.backend_image }}'"
           echo "frontend_image: '${{ github.event.client_payload.frontend_image }}'"
 
-          # Get the raw version from the payload
           RAW_VERSION="${{ github.event.client_payload.version }}"
-          echo "raw_version=$RAW_VERSION" >> $GITHUB_OUTPUT
-
-          # Initialize version variables
-          SEMANTIC_VERSION=""
+          PAYLOAD_SEMVER="${{ github.event.client_payload.semantic_version }}"
+          ENVIRONMENT="${{ github.event.client_payload.environment }}"
+          SEMVER_REGEX='^[0-9]+\.[0-9]+\.[0-9]+$'
           VALID_VERSION=""
 
-          # First try to use semantic_version from payload
-          if [ -n "${{ github.event.client_payload.semantic_version }}" ]; then
-            echo "Using semantic_version from payload: ${{ github.event.client_payload.semantic_version }}"
-            SEMANTIC_VERSION="${{ github.event.client_payload.semantic_version }}"
-          else
-            # Try to extract semantic version from raw version
-            SEMANTIC_VERSION=$(echo "$RAW_VERSION" | grep -Eo "^[0-9]+\.[0-9]+\.[0-9]+")
-            if [ -n "$SEMANTIC_VERSION" ]; then
-              echo "Extracted semantic version from raw version: $SEMANTIC_VERSION"
-            fi
-          fi
+          echo "raw_version=$RAW_VERSION" >> $GITHUB_OUTPUT
+          echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
 
-          # Validate and set the final version
-          if [ -n "$SEMANTIC_VERSION" ]; then
-            # For staging, append -stg
-            if [[ "${{ github.event.client_payload.environment }}" == "stg" ]]; then
-              VALID_VERSION="${SEMANTIC_VERSION}-stg"
-              echo "Using semantic version with staging suffix: $VALID_VERSION"
+          if [[ "$ENVIRONMENT" == "prod" ]]; then
+            echo "Processing production environment..."
+            # For production, we need a strict X.Y.Z semantic version
+            if [[ "$PAYLOAD_SEMVER" =~ $SEMVER_REGEX ]]; then
+              echo "Using valid semantic_version from payload: $PAYLOAD_SEMVER"
+              VALID_VERSION="$PAYLOAD_SEMVER"
+            elif [[ "$RAW_VERSION" =~ $SEMVER_REGEX ]]; then
+               echo "Using valid raw_version from payload: $RAW_VERSION"
+               VALID_VERSION="$RAW_VERSION"
             else
-              VALID_VERSION="$SEMANTIC_VERSION"
-              echo "Using semantic version as is: $VALID_VERSION"
+               # Try extracting from payload_semver or raw_version
+               EXTRACTED=$(echo "$PAYLOAD_SEMVER" | grep -Eo "$SEMVER_REGEX" || echo "$RAW_VERSION" | grep -Eo "$SEMVER_REGEX")
+               if [[ "$EXTRACTED" =~ $SEMVER_REGEX ]]; then
+                 echo "Extracted valid semantic version: $EXTRACTED"
+                 VALID_VERSION="$EXTRACTED"
+               else
+                 echo "::error::Production environment requires a valid X.Y.Z semantic version in 'semantic_version' or 'version' payload field."
+                 echo "Received semantic_version: '$PAYLOAD_SEMVER'"
+                 echo "Received version: '$RAW_VERSION'"
+                 exit 1
+               fi
             fi
+          elif [[ "$ENVIRONMENT" == "stg" ]]; then
+            echo "Processing staging environment..."
+            # For staging, create a 0.0.0-stg.<identifier> version
+            # Use the raw version (expected stg-GITHASH) as the identifier
+            IDENTIFIER=$(echo "$RAW_VERSION" | sed 's/[^a-zA-Z0-9-]/-/g') # Sanitize
+            if [ -z "$IDENTIFIER" ]; then
+              echo "::warning::Could not extract identifier from raw version '$RAW_VERSION', using timestamp."
+              IDENTIFIER=$(date +%Y%m%d%H%M%S)
+            fi
+            VALID_VERSION="0.0.0-stg.$IDENTIFIER"
+            echo "Generated staging Helm version: $VALID_VERSION"
           else
-            # For staging, create a development version
-            if [[ "${{ github.event.client_payload.environment }}" == "stg" ]]; then
-              # Use timestamp-based version for staging
-              TIMESTAMP=$(date +%Y%m%d%H%M%S)
-              VALID_VERSION="0.0.0-stg.${TIMESTAMP}"
-              echo "Created staging version with timestamp: $VALID_VERSION"
-            else
-              # For production, we must have a semantic version
-              echo "::error::Production releases require a valid semantic version (e.g., 1.2.3)"
-              echo "Raw version: '$RAW_VERSION'"
-              echo "Environment: '${{ github.event.client_payload.environment }}'"
-              exit 1
-            fi
-          fi
-
-          # Validate final version meets Helm's requirements
-          if ! echo "$VALID_VERSION" | grep -Eq "^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$"; then
-            echo "::error::Invalid version format for Helm: $VALID_VERSION"
-            echo "Version must match pattern: X.Y.Z or X.Y.Z-prerelease"
+            echo "::error::Unknown environment: '$ENVIRONMENT'. Must be 'stg' or 'prod'."
             exit 1
           fi
 
-          echo "Final version to be used: $VALID_VERSION"
+          # Final validation against Helm requirements (covers both prod and stg formats)
+          if ! echo "$VALID_VERSION" | grep -Eq "^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$"; then
+            echo "::error::Invalid final version format for Helm: '$VALID_VERSION'"
+            echo "Version must match pattern: X.Y.Z or X.Y.Z-prerelease.identifier"
+            exit 1
+          fi
+
+          echo "Final Helm version to be used: $VALID_VERSION"
           echo "version=$VALID_VERSION" >> $GITHUB_OUTPUT
-          echo "environment=${{ github.event.client_payload.environment }}" >> $GITHUB_OUTPUT
 
       - name: Trigger Helm Update
         env:
