@@ -158,12 +158,16 @@ jobs:
           DEPLOY_TAG="${{ steps.process-tag.outputs.deploy_tag }}"
           ENV="${{ steps.vars.outputs.env }}"
 
-          echo "Using deploy tag: $DEPLOY_TAG for environment: $ENV"
+          # Pass the FILE_ENV to the Makefile
+          echo "Using deploy tag: $DEPLOY_TAG for environment: $ENV (file: $FILE_ENV)"
 
-          if ! make update-image TAG="$DEPLOY_TAG" ENV="$ENV"; then
-            echo "::error::Failed to update image tags"
-            exit 1
-          fi
+          # Update the values file directly using yq instead of using the Makefile
+          echo "Updating backend tag to $DEPLOY_TAG in $VALUES_FILE"
+          yq e -i ".backend.tag = \"$DEPLOY_TAG\"" "$VALUES_FILE"
+
+          echo "Updating frontend tag to $DEPLOY_TAG in $VALUES_FILE"
+          yq e -i ".frontend.tag = \"$DEPLOY_TAG\"" "$VALUES_FILE"
+
           echo "::endgroup::"
 
           echo "::group::Verification"
