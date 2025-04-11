@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - test-readme-sync
+      - Doc/trigger-readme-update
     paths:
       - 'README.md'
 
