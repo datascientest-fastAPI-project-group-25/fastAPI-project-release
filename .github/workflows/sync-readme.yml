@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - test-readme-sync
     paths:
       - 'README.md'
 
