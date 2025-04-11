@@ -86,6 +86,12 @@ runs:
           fi
         fi
 
+        # Final check to ensure we have a valid semantic version
+        if [[ ! "$INPUT_SEMANTIC_VERSION" =~ $SEMVER_REGEX ]]; then
+          echo "::warning::Still no valid semantic version after processing, forcing to 0.1.0"
+          INPUT_SEMANTIC_VERSION="0.1.0"
+        fi
+
         # Use only first 7 characters of git hash for output to avoid issues with long hashes
         if [[ -n "$EXTRACTED_GIT_HASH" ]]; then
           SHORT_HASH="${EXTRACTED_GIT_HASH:0:7}"
