@@ -39,12 +39,25 @@ jobs:
           RAW_VERSION="${{ github.event.client_payload.version }}"
           echo "raw_version=$RAW_VERSION" >> $GITHUB_OUTPUT
 
-          # Check if semantic_version is provided in the payload
-          if [ -n "${{ github.event.client_payload.semantic_version }}" ]; then
-            echo "Semantic version provided in payload: ${{ github.event.client_payload.semantic_version }}"
-            SEMANTIC_VERSION="${{ github.event.client_payload.semantic_version }}"
+          # Initialize version variables
+          SEMANTIC_VERSION=""
+          VALID_VERSION=""
 
-            # For staging, append -stg to the semantic version
+          # First try to use semantic_version from payload
+          if [ -n "${{ github.event.client_payload.semantic_version }}" ]; then
+            echo "Using semantic_version from payload: ${{ github.event.client_payload.semantic_version }}"
+            SEMANTIC_VERSION="${{ github.event.client_payload.semantic_version }}"
+          else
+            # Try to extract semantic version from raw version
+            SEMANTIC_VERSION=$(echo "$RAW_VERSION" | grep -Eo "^[0-9]+\.[0-9]+\.[0-9]+")
+            if [ -n "$SEMANTIC_VERSION" ]; then
+              echo "Extracted semantic version from raw version: $SEMANTIC_VERSION"
+            fi
+          fi
+
+          # Validate and set the final version
+          if [ -n "$SEMANTIC_VERSION" ]; then
+            # For staging, append -stg
             if [[ "${{ github.event.client_payload.environment }}" == "stg" ]]; then
               VALID_VERSION="${SEMANTIC_VERSION}-stg"
               echo "Using semantic version with staging suffix: $VALID_VERSION"
@@ -53,46 +66,29 @@ jobs:
               echo "Using semantic version as is: $VALID_VERSION"
             fi
           else
-            # No semantic version provided, fall back to the raw version
-            echo "No semantic version provided in payload, using raw version"
-
-            # Check if the version is a semantic version (matches pattern like 1.2.3 or 1.2.3-stg)
-            if [[ "$RAW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
-              echo "Version $RAW_VERSION is a valid semantic version"
-              VALID_VERSION="$RAW_VERSION"
+            # For staging, create a development version
+            if [[ "${{ github.event.client_payload.environment }}" == "stg" ]]; then
+              # Use timestamp-based version for staging
+              TIMESTAMP=$(date +%Y%m%d%H%M%S)
+              VALID_VERSION="0.0.0-stg.${TIMESTAMP}"
+              echo "Created staging version with timestamp: $VALID_VERSION"
             else
-              # If it's not a semantic version (e.g., a git hash or other format)
-              echo "Version $RAW_VERSION is not a valid semantic version"
-
-              # Check if it's a staging version (contains 'stg' or starts with a git hash)
-              if [[ "$RAW_VERSION" == *"stg"* ]] || [[ "${{ github.event.client_payload.environment }}" == "stg" ]]; then
-                # For staging, use 0.0.1 as the base version with the raw version as a prerelease identifier
-                # Replace any characters that aren't allowed in semver with dashes
-                SAFE_VERSION=$(echo "$RAW_VERSION" | sed 's/[^0-9a-zA-Z-]/-/g')
-                VALID_VERSION="0.0.1-$SAFE_VERSION"
-                echo "Converting to valid semantic version for staging: $VALID_VERSION"
-              else
-                # For production, we should have a valid semver, so this is an error
-                echo "::error::Production releases must use semantic versioning (e.g., 1.2.3)"
-                echo "Raw version: '$RAW_VERSION'"
-                echo "Environment: '${{ github.event.client_payload.environment }}'"
-
-                # Try to extract a semver from the raw version
-                EXTRACTED=$(echo "$RAW_VERSION" | grep -Eo "[0-9]+\.[0-9]+\.[0-9]+" | head -n1)
-                if [[ -n "$EXTRACTED" ]]; then
-                  echo "Extracted semantic version: $EXTRACTED"
-                  VALID_VERSION="$EXTRACTED"
-                else
-                  # If we can't extract a semver, use a default version
-                  echo "Could not extract semantic version, using default 0.1.0"
-                  VALID_VERSION="0.1.0"
-                fi
-              fi
+              # For production, we must have a semantic version
+              echo "::error::Production releases require a valid semantic version (e.g., 1.2.3)"
+              echo "Raw version: '$RAW_VERSION'"
+              echo "Environment: '${{ github.event.client_payload.environment }}'"
+              exit 1
             fi
           fi
 
-          echo "Final version to be used: $VALID_VERSION"
+          # Validate final version meets Helm's requirements
+          if ! echo "$VALID_VERSION" | grep -Eq "^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$"; then
+            echo "::error::Invalid version format for Helm: $VALID_VERSION"
+            echo "Version must match pattern: X.Y.Z or X.Y.Z-prerelease"
+            exit 1
+          fi
 
+          echo "Final version to be used: $VALID_VERSION"
           echo "version=$VALID_VERSION" >> $GITHUB_OUTPUT
           echo "environment=${{ github.event.client_payload.environment }}" >> $GITHUB_OUTPUT
 
@@ -105,11 +101,25 @@ jobs:
 
           echo "Triggering Helm update for $ENV environment with tag $TAG"
 
+          echo "Triggering update-helm workflow with tag=$TAG, env=$ENV"
           gh workflow run update-helm.yaml \
             --field tag="$TAG" \
-            --field env="$ENV"
+            --field env="$ENV" \
+            --ref main
 
-          echo "✓ Helm update workflow triggered"
+          echo "✓ Helm update workflow triggered on main branch"
+          
+          # Wait briefly to ensure the workflow starts
+          sleep 5
+          
+          # Get the run ID of the triggered workflow
+          RUN_ID=$(gh run list --workflow=update-helm.yaml --json databaseId --jq '.[0].databaseId')
+          if [ -n "$RUN_ID" ]; then
+            echo "Update-helm workflow started with run ID: $RUN_ID"
+            echo "Monitor at: https://github.com/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"
+          else
+            echo "::warning::Could not find the triggered workflow run ID"
+          fi
 
           echo "backend_image=${{ github.event.client_payload.backend_image }}" >> $GITHUB_OUTPUT
           echo "frontend_image=${{ github.event.client_payload.frontend_image }}" >> $GITHUB_OUTPUT
