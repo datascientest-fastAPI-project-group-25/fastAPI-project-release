@@ -1,0 +1,40 @@
+name: Sync README to Docs
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'README.md'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v3
+        with:
+          path: source-repo
+
+      - name: Checkout docs repository
+        uses: actions/checkout@v3
+        with:
+          repository: datascientest-fastAPI-project-group-25/fastAPI-project-docs
+          path: docs-repo
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Create directory if it doesn't exist
+        run: mkdir -p docs-repo/docs/release
+
+      - name: Copy README to docs repository
+        run: |
+          cp source-repo/README.md docs-repo/docs/release/README.md
+          
+      - name: Commit and push changes
+        run: |
+          cd docs-repo
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add docs/release/README.md
+          git commit -m "Sync README from release repository" || echo "No changes to commit"
+          git push
