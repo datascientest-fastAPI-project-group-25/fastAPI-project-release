@@ -21,7 +21,7 @@ jobs:
         with:
           repository: datascientest-fastAPI-project-group-25/fastAPI-project-docs
           path: docs-repo
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create directory if it doesn't exist
         run: mkdir -p docs-repo/docs/release
