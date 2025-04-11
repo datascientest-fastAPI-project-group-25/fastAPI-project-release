@@ -298,31 +298,40 @@ jobs:
 
       - name: Create GitHub Release (if not triggered by release)
         if: ${{ github.event_name != 'release' }}
-        uses: softprops/action-gh-release@v2.0.2
-        env:
-          GITHUB_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
-        with:
-          tag_name: ${{ steps.process-tag.outputs.tag_name }}
-          name: Release ${{ steps.process-tag.outputs.tag_name }}
-          generate_release_notes: true
-          draft: false
-          prerelease: ${{ steps.vars.outputs.env == 'staging' }}
-          body: |
-            ## Helm Chart Update
+        run: |
+          # Use gh CLI to create a release
+          echo "Creating GitHub release for tag ${{ steps.process-tag.outputs.tag_name }}..."
 
-            This release updates the Helm charts for the **${{ steps.vars.outputs.env }}** environment.
+          # Authenticate with GitHub CLI
+          echo "${{ secrets.MACHINE_USER_TOKEN }}" | gh auth login --with-token
 
-            ### Version Information
-            - Environment: ${{ steps.vars.outputs.env }}
-            - Helm Chart Version: ${{ steps.process-tag.outputs.version }}
-            - Image Tag: ${{ steps.process-tag.outputs.deploy_tag }}
-            - Git Hash: ${{ steps.process-tag.outputs.git_hash }}
+          # Create release notes file
+          cat > release_notes.md << EOF
+          ## Helm Chart Update
 
-            ### Changes
-            Updated image tags in Helm values from:
-            - Backend: `${{ steps.update_helm.outputs.old_backend_tag }}`
-            - Frontend: `${{ steps.update_helm.outputs.old_frontend_tag }}`
+          This release updates the Helm charts for the **${{ steps.vars.outputs.env }}** environment.
 
-            To:
-            - Backend: `${{ steps.update_helm.outputs.deploy_tag }}`
-            - Frontend: `${{ steps.update_helm.outputs.deploy_tag }}`
+          ### Version Information
+          - Environment: ${{ steps.vars.outputs.env }}
+          - Helm Chart Version: ${{ steps.process-tag.outputs.version }}
+          - Image Tag: ${{ steps.process-tag.outputs.deploy_tag }}
+          - Git Hash: ${{ steps.process-tag.outputs.git_hash }}
+
+          ### Changes
+          Updated image tags in Helm values from:
+          - Backend: \`${{ steps.update_helm.outputs.old_backend_tag }}\`
+          - Frontend: \`${{ steps.update_helm.outputs.old_frontend_tag }}\`
+
+          To:
+          - Backend: \`${{ steps.update_helm.outputs.deploy_tag }}\`
+          - Frontend: \`${{ steps.update_helm.outputs.deploy_tag }}\`
+          EOF
+
+          # Create the release
+          gh release create "${{ steps.process-tag.outputs.tag_name }}" \
+            --title "Release ${{ steps.process-tag.outputs.tag_name }}" \
+            --notes-file release_notes.md \
+            --generate-notes \
+            ${{ steps.vars.outputs.env == 'staging' && '--prerelease' || '' }}
+
+          echo "✅ GitHub release created successfully!"

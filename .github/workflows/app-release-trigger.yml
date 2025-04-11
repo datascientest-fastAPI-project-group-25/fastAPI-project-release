@@ -179,36 +179,51 @@ jobs:
 
       - name: Create GitHub Release
         if: steps.check_charts.outputs.charts_exist == 'true' && steps.create_tag.outputs.tag_verified == 'true'
-        uses: softprops/action-gh-release@v2.0.2
-        env:
-          GITHUB_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
-        with:
-          tag_name: ${{ steps.parse.outputs.tag_name }}
-          name: Release ${{ steps.parse.outputs.tag_name }}
-          files: |
-            dist/fastapi-dev/*.tgz
-            dist/fastapi-staging/*.tgz
-            dist/fastapi-prod/*.tgz
-          generate_release_notes: true
-          draft: false
-          prerelease: ${{ github.event.client_payload.environment == 'stg' }}
-          body: |
-            ## Environment-specific Helm Charts
+        run: |
+          # Use gh CLI to create a release
+          echo "Creating GitHub release for tag ${{ steps.parse.outputs.tag_name }}..."
 
-            This release includes Helm charts for the following environments:
-            - Development (using staging images)
-            - Staging
-            - Production
+          # Install GitHub CLI if not already installed
+          if ! command -v gh &> /dev/null; then
+            echo "Installing GitHub CLI..."
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt update
+            sudo apt install gh -y
+          fi
 
-            ### Version Information
-            - Semantic Version for Helm: ${{ steps.parse.outputs.version }}
-            - Environment: ${{ steps.parse.outputs.environment }}
-            - Original Version: ${{ steps.parse.outputs.raw_version }}
-            - Git Hash: ${{ steps.parse.outputs.git_hash }}
+          # Authenticate with GitHub CLI
+          echo "${{ secrets.MACHINE_USER_TOKEN }}" | gh auth login --with-token
 
-            ### Image Tags
-            - Dev/Staging: ${{ steps.parse.outputs.version }}-stg
-            - Production: ${{ steps.parse.outputs.version }}
+          # Create release notes file
+          cat > release_notes.md << EOF
+          ## Environment-specific Helm Charts
+
+          This release includes Helm charts for the following environments:
+          - Development (using staging images)
+          - Staging
+          - Production
+
+          ### Version Information
+          - Semantic Version for Helm: ${{ steps.parse.outputs.version }}
+          - Environment: ${{ steps.parse.outputs.environment }}
+          - Original Version: ${{ steps.parse.outputs.raw_version }}
+          - Git Hash: ${{ steps.parse.outputs.git_hash }}
+
+          ### Image Tags
+          - Dev/Staging: ${{ steps.parse.outputs.version }}-stg
+          - Production: ${{ steps.parse.outputs.version }}
+          EOF
+
+          # Create the release
+          gh release create "${{ steps.parse.outputs.tag_name }}" \
+            --title "Release ${{ steps.parse.outputs.tag_name }}" \
+            --notes-file release_notes.md \
+            --generate-notes \
+            ${{ github.event.client_payload.environment == 'stg' && '--prerelease' || '' }} \
+            dist/fastapi-dev/*.tgz dist/fastapi-staging/*.tgz dist/fastapi-prod/*.tgz
+
+          echo "✅ GitHub release created successfully!"
 
 
       - name: Debug Release Creation
