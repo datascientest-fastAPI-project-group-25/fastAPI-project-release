@@ -27,7 +27,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.MACHINE_USER_TOKEN }}
           fetch-depth: 0  # Fetch all history for proper branch detection
 
       - name: Install yq
@@ -218,7 +218,7 @@ jobs:
         id: create_pr
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.MACHINE_USER_TOKEN }}
           commit-message: "chore: update image tags for ${{ steps.vars.outputs.env }} environment"
           branch: ${{ steps.commit.outputs.branch_name }}
           base: ${{ steps.commit.outputs.default_branch }}
