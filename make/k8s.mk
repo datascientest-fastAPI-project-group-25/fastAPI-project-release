@@ -46,32 +46,40 @@ update-image:
 	fi
 
 	@echo "==> Validating Helm values file..."
-	@if [ ! -f "config/helm/$$ENV.yaml" ]; then \
-		echo "Error: config/helm/$$ENV.yaml does not exist"; \
+	@FILE_ENV="$$ENV"; \
+	if [ "$$ENV" = "stg" ]; then \
+		FILE_ENV="staging"; \
+		echo "Normalized environment name from 'stg' to 'staging' for file path"; \
+	elif [ "$$ENV" = "prod" ]; then \
+		FILE_ENV="production"; \
+		echo "Normalized environment name from 'prod' to 'production' for file path"; \
+	fi; \
+	if [ ! -f "config/helm/$$FILE_ENV.yaml" ]; then \
+		echo "Error: config/helm/$$FILE_ENV.yaml does not exist"; \
 		echo "Available environments:"; \
 		ls -1 config/helm/*.yaml 2>/dev/null || echo "No environment files found!"; \
 		exit 1; \
 	fi
 
 	@echo "==> Checking current values..."
-	@echo "Current backend tag: $$(yq e '.backend.tag' config/helm/$$ENV.yaml || echo 'Not set')"
-	@echo "Current frontend tag: $$(yq e '.frontend.tag' config/helm/$$ENV.yaml || echo 'Not set')"
+	@echo "Current backend tag: $$(yq e '.backend.tag' config/helm/$$FILE_ENV.yaml || echo 'Not set')"
+	@echo "Current frontend tag: $$(yq e '.frontend.tag' config/helm/$$FILE_ENV.yaml || echo 'Not set')"
 
 	@echo "==> Updating image tags to $$TAG..."
-	@if ! yq e -i '.backend.tag = "$(TAG)"' config/helm/$$ENV.yaml; then \
+	@if ! yq e -i '.backend.tag = "$(TAG)"' config/helm/$$FILE_ENV.yaml; then \
 		echo "Error: Failed to update backend tag"; \
 		exit 1; \
 	fi
 
-	@if ! yq e -i '.frontend.tag = "$(TAG)"' config/helm/$$ENV.yaml; then \
+	@if ! yq e -i '.frontend.tag = "$(TAG)"' config/helm/$$FILE_ENV.yaml; then \
 		echo "Error: Failed to update frontend tag"; \
 		echo "Warning: Backend tag may have been updated, manual verification required"; \
 		exit 1; \
 	fi
 
 	@echo "==> Verifying updates..."
-	@NEW_BACKEND_TAG=$$(yq e '.backend.tag' config/helm/$$ENV.yaml) && \
-	NEW_FRONTEND_TAG=$$(yq e '.frontend.tag' config/helm/$$ENV.yaml) && \
+	@NEW_BACKEND_TAG=$$(yq e '.backend.tag' config/helm/$$FILE_ENV.yaml) && \
+	NEW_FRONTEND_TAG=$$(yq e '.frontend.tag' config/helm/$$FILE_ENV.yaml) && \
 	if [ "$$NEW_BACKEND_TAG" != "$(TAG)" ] || [ "$$NEW_FRONTEND_TAG" != "$(TAG)" ]; then \
 		echo "Error: Tag verification failed!"; \
 		echo "Expected: $(TAG)"; \
