@@ -72,6 +72,26 @@ jobs:
           fi
 
           echo "version=$VALID_VERSION" >> $GITHUB_OUTPUT
+          echo "environment=${{ github.event.client_payload.environment }}" >> $GITHUB_OUTPUT
+
+      - name: Trigger Helm Update
+        env:
+          GH_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
+        run: |
+          ENV="${{ steps.parse.outputs.environment }}"
+          TAG="${{ steps.parse.outputs.version }}"
+
+          echo "Triggering Helm update for $ENV environment with tag $TAG"
+
+          gh workflow run update-helm.yaml \
+            --field tag="$TAG" \
+            --field env="$ENV"
+
+          echo "✓ Helm update workflow triggered"
+            fi
+          fi
+
+          echo "version=$VALID_VERSION" >> $GITHUB_OUTPUT
           echo "backend_image=${{ github.event.client_payload.backend_image }}" >> $GITHUB_OUTPUT
           echo "frontend_image=${{ github.event.client_payload.frontend_image }}" >> $GITHUB_OUTPUT
           echo "environment=${{ github.event.client_payload.environment }}" >> $GITHUB_OUTPUT
