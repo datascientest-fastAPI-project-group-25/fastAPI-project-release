@@ -164,18 +164,6 @@ jobs:
             - Dev/Staging: ${{ steps.parse.outputs.version }}-stg
             - Production: ${{ steps.parse.outputs.version }}
 
-      - name: Trigger Helm Update
-        if: steps.check_charts.outputs.charts_exist == 'true' && steps.check_release.outputs.release_exists == 'false'
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.MACHINE_USER_TOKEN }}
-          repository: ${{ github.repository }}
-          event-type: helm-update-trigger
-          client-payload: |
-            {
-              "tag": "${{ steps.parse.outputs.version }}",
-              "env": "${{ steps.parse.outputs.environment }}"
-            }
 
       - name: Debug Release Creation
         if: steps.check_charts.outputs.charts_exist == 'true' && steps.check_release.outputs.release_exists == 'false'
