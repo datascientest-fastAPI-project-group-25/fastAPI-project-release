@@ -49,6 +49,15 @@ runs:
         # Extract git hash from version string if present
         EXTRACTED_GIT_HASH="$(echo $INPUT_RAW_VERSION | grep -o '[a-f0-9]\{7,40\}' || echo '')"
 
+        # Try to extract semantic version from raw_version if it's not already provided
+        if [[ -z "$INPUT_SEMANTIC_VERSION" || "$INPUT_SEMANTIC_VERSION" == "null" ]]; then
+          # Look for X.Y.Z pattern in raw_version
+          if [[ "$INPUT_RAW_VERSION" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+            INPUT_SEMANTIC_VERSION="${BASH_REMATCH[1]}"
+            echo "Extracted semantic version $INPUT_SEMANTIC_VERSION from raw_version"
+          fi
+        fi
+
         # Use only first 7 characters of git hash for output to avoid issues with long hashes
         if [[ -n "$EXTRACTED_GIT_HASH" ]]; then
           SHORT_HASH="${EXTRACTED_GIT_HASH:0:7}"
