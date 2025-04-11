@@ -53,21 +53,21 @@ jobs:
       - name: Determine tag and environment
         id: vars
         run: |
-          # Determine tag
+          # Determine tag and environment
           if [ "${{ github.event_name }}" = "release" ]; then
-            echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+            TAG="${{ github.event.release.tag_name }}"
             # For releases, determine environment based on tag format
-            if [[ "${{ github.event.release.tag_name }}" == v* ]]; then
-              echo "env=production" >> $GITHUB_OUTPUT
+            if [[ "$TAG" == v* && "$TAG" != vstg-* ]]; then
+              ENV="production"
             else
-              echo "env=staging" >> $GITHUB_OUTPUT
+              ENV="staging"
             fi
-            echo "Triggered by release event for tag ${{ github.event.release.tag_name }}"
+            echo "Triggered by release event for tag $TAG"
           else
             TAG="${{ github.event.inputs.tag }}"
             ENV="${{ github.event.inputs.env }}"
 
-            # Handle the new tag format for staging (vstg-[GITHASH])
+            # Handle the tag format for staging (vstg-[GITHASH])
             if [[ "$TAG" == vstg-* ]]; then
               # This is a staging tag with semantic version
               ENV="staging"
@@ -81,15 +81,35 @@ jobs:
               ENV="production"
               echo "Detected v prefix, setting environment to production"
             fi
-
-            echo "tag=$TAG" >> $GITHUB_OUTPUT
-            echo "env=$ENV" >> $GITHUB_OUTPUT
             echo "Triggered by workflow_dispatch with tag=$TAG, env=$ENV"
           fi
 
+          # Set outputs
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "env=$ENV" >> $GITHUB_OUTPUT
+          echo "raw_version=$TAG" >> $GITHUB_OUTPUT
+
+          # Extract semantic version if possible
+          SEMVER=""
+          if [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
+            SEMVER="${BASH_REMATCH[1]}"
+          elif [[ "$TAG" =~ ^vstg-([0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
+            SEMVER="${BASH_REMATCH[1]}"
+          fi
+          echo "semantic_version=$SEMVER" >> $GITHUB_OUTPUT
+
           # Print determined values for debugging
-          echo "Using tag: $(cat $GITHUB_OUTPUT | grep tag | cut -d'=' -f2)"
-          echo "Using environment: $(cat $GITHUB_OUTPUT | grep env | cut -d'=' -f2)"
+          echo "Using tag: $TAG"
+          echo "Using environment: $ENV"
+          echo "Using semantic version: $SEMVER"
+
+      - name: Process tag using reusable workflow
+        id: process-tag
+        uses: ./.github/workflows/process-tag.yml
+        with:
+          raw_version: ${{ steps.vars.outputs.raw_version }}
+          environment: ${{ steps.vars.outputs.env }}
+          semantic_version: ${{ steps.vars.outputs.semantic_version }}
 
       - name: Update Helm values with new image tag
         id: update_helm
@@ -97,6 +117,7 @@ jobs:
           echo "::group::Environment and Tag Information"
           echo "Tag: ${{ steps.vars.outputs.tag }}"
           echo "Environment: ${{ steps.vars.outputs.env }}"
+          echo "Deploy Tag: ${{ steps.process-tag.outputs.deploy_tag }}"
           echo "::endgroup::"
 
           echo "::group::Helm Values File Validation"
@@ -113,21 +134,23 @@ jobs:
           echo "::group::Current Tag Values"
           CURRENT_BACKEND_TAG=$(yq e '.backend.tag' "$VALUES_FILE" || echo "ERROR")
           CURRENT_FRONTEND_TAG=$(yq e '.frontend.tag' "$VALUES_FILE" || echo "ERROR")
-          
+
           if [[ "$CURRENT_BACKEND_TAG" == "ERROR" || "$CURRENT_FRONTEND_TAG" == "ERROR" ]]; then
             echo "::error::Failed to read current tag values"
             exit 1
           fi
-          
+
           echo "Current backend tag: $CURRENT_BACKEND_TAG"
           echo "Current frontend tag: $CURRENT_FRONTEND_TAG"
           echo "::endgroup::"
 
           echo "::group::Updating Image Tags"
-          TAG="${{ steps.vars.outputs.tag }}"
+          DEPLOY_TAG="${{ steps.process-tag.outputs.deploy_tag }}"
           ENV="${{ steps.vars.outputs.env }}"
 
-          if ! make update-image TAG="$TAG" ENV="$ENV"; then
+          echo "Using deploy tag: $DEPLOY_TAG for environment: $ENV"
+
+          if ! make update-image TAG="$DEPLOY_TAG" ENV="$ENV"; then
             echo "::error::Failed to update image tags"
             exit 1
           fi
@@ -137,9 +160,9 @@ jobs:
           NEW_BACKEND_TAG=$(yq e '.backend.tag' "$VALUES_FILE")
           NEW_FRONTEND_TAG=$(yq e '.frontend.tag' "$VALUES_FILE")
 
-          if [[ "$NEW_BACKEND_TAG" != "$TAG" || "$NEW_FRONTEND_TAG" != "$TAG" ]]; then
+          if [[ "$NEW_BACKEND_TAG" != "$DEPLOY_TAG" || "$NEW_FRONTEND_TAG" != "$DEPLOY_TAG" ]]; then
             echo "::error::Tag verification failed!"
-            echo "Expected: $TAG"
+            echo "Expected: $DEPLOY_TAG"
             echo "Got: backend=$NEW_BACKEND_TAG, frontend=$NEW_FRONTEND_TAG"
             exit 1
           fi
@@ -153,6 +176,7 @@ jobs:
           echo "updated=true" >> $GITHUB_OUTPUT
           echo "old_backend_tag=$CURRENT_BACKEND_TAG" >> $GITHUB_OUTPUT
           echo "old_frontend_tag=$CURRENT_FRONTEND_TAG" >> $GITHUB_OUTPUT
+          echo "deploy_tag=$DEPLOY_TAG" >> $GITHUB_OUTPUT
 
       - name: Commit changes
         id: commit
@@ -177,7 +201,7 @@ jobs:
           echo "::group::Git Status and Changes"
           git status
           git add config/helm/*.yaml
-          
+
           COMMIT_MSG=$(cat << 'EOF'
           chore: update image tags for ${{ steps.vars.outputs.env }} environment
 
@@ -186,10 +210,11 @@ jobs:
           - frontend: ${{ steps.update_helm.outputs.old_frontend_tag }}
 
           To:
-          - backend: ${{ steps.vars.outputs.tag }}
-          - frontend: ${{ steps.vars.outputs.tag }}
+          - backend: ${{ steps.update_helm.outputs.deploy_tag }}
+          - frontend: ${{ steps.update_helm.outputs.deploy_tag }}
 
           Environment: ${{ steps.vars.outputs.env }}
+          Original Tag: ${{ steps.vars.outputs.tag }}
           EOF
           )
 
@@ -222,7 +247,7 @@ jobs:
           commit-message: "chore: update image tags for ${{ steps.vars.outputs.env }} environment"
           branch: ${{ steps.commit.outputs.branch_name }}
           base: ${{ steps.commit.outputs.default_branch }}
-          title: "Update image tags to ${{ steps.vars.outputs.tag }} for ${{ steps.vars.outputs.env }}"
+          title: "Update image tags to ${{ steps.update_helm.outputs.deploy_tag }} for ${{ steps.vars.outputs.env }}"
           body: |
             ## Changes Summary
             This PR updates the image tags in the Helm values files for the **${{ steps.vars.outputs.env }}** environment.
@@ -233,8 +258,10 @@ jobs:
             - Frontend: `${{ steps.update_helm.outputs.old_frontend_tag }}`
 
             **To:**
-            - Backend: `${{ steps.vars.outputs.tag }}`
-            - Frontend: `${{ steps.vars.outputs.tag }}`
+            - Backend: `${{ steps.update_helm.outputs.deploy_tag }}`
+            - Frontend: `${{ steps.update_helm.outputs.deploy_tag }}`
+
+            **Original Tag:** `${{ steps.vars.outputs.tag }}`
 
             ### Additional Information
             - Environment: `${{ steps.vars.outputs.env }}`

@@ -24,10 +24,8 @@ jobs:
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
-      - name: Parse payload and validate version for Helm
-        id: parse
+      - name: Debug payload
         run: |
-          # Debug payload
           echo "Received payload:"
           echo "version: '${{ github.event.client_payload.version }}'"
           echo "environment: '${{ github.event.client_payload.environment }}'"
@@ -35,62 +33,28 @@ jobs:
           echo "backend_image: '${{ github.event.client_payload.backend_image }}'"
           echo "frontend_image: '${{ github.event.client_payload.frontend_image }}'"
 
-          RAW_VERSION="${{ github.event.client_payload.version }}"
-          PAYLOAD_SEMVER="${{ github.event.client_payload.semantic_version }}"
-          ENVIRONMENT="${{ github.event.client_payload.environment }}"
-          SEMVER_REGEX='^[0-9]+\.[0-9]+\.[0-9]+$'
-          VALID_VERSION=""
+      - name: Process tag using reusable workflow
+        id: process-tag
+        uses: ./.github/workflows/process-tag.yml
+        with:
+          raw_version: ${{ github.event.client_payload.version }}
+          environment: ${{ github.event.client_payload.environment }}
+          semantic_version: ${{ github.event.client_payload.semantic_version }}
 
-          echo "raw_version=$RAW_VERSION" >> $GITHUB_OUTPUT
-          echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
+      - name: Set outputs for backward compatibility
+        id: parse
+        run: |
+          echo "raw_version=${{ github.event.client_payload.version }}" >> $GITHUB_OUTPUT
+          echo "environment=${{ github.event.client_payload.environment }}" >> $GITHUB_OUTPUT
+          echo "version=${{ steps.process-tag.outputs.version }}" >> $GITHUB_OUTPUT
+          echo "tag_name=${{ steps.process-tag.outputs.tag_name }}" >> $GITHUB_OUTPUT
+          echo "git_hash=${{ steps.process-tag.outputs.git_hash }}" >> $GITHUB_OUTPUT
+          echo "deploy_tag=${{ steps.process-tag.outputs.deploy_tag }}" >> $GITHUB_OUTPUT
 
-          if [[ "$ENVIRONMENT" == "prod" ]]; then
-            echo "Processing production environment..."
-            # For production, we need a strict X.Y.Z semantic version
-            if [[ "$PAYLOAD_SEMVER" =~ $SEMVER_REGEX ]]; then
-              echo "Using valid semantic_version from payload: $PAYLOAD_SEMVER"
-              VALID_VERSION="$PAYLOAD_SEMVER"
-            elif [[ "$RAW_VERSION" =~ $SEMVER_REGEX ]]; then
-               echo "Using valid raw_version from payload: $RAW_VERSION"
-               VALID_VERSION="$RAW_VERSION"
-            else
-               # Try extracting from payload_semver or raw_version
-               EXTRACTED=$(echo "$PAYLOAD_SEMVER" | grep -Eo "$SEMVER_REGEX" || echo "$RAW_VERSION" | grep -Eo "$SEMVER_REGEX")
-               if [[ "$EXTRACTED" =~ $SEMVER_REGEX ]]; then
-                 echo "Extracted valid semantic version: $EXTRACTED"
-                 VALID_VERSION="$EXTRACTED"
-               else
-                 echo "::error::Production environment requires a valid X.Y.Z semantic version in 'semantic_version' or 'version' payload field."
-                 echo "Received semantic_version: '$PAYLOAD_SEMVER'"
-                 echo "Received version: '$RAW_VERSION'"
-                 exit 1
-               fi
-            fi
-          elif [[ "$ENVIRONMENT" == "stg" ]]; then
-            echo "Processing staging environment..."
-            # For staging, create a 0.0.0-stg.<identifier> version
-            # Use the raw version (expected stg-GITHASH) as the identifier
-            IDENTIFIER=$(echo "$RAW_VERSION" | sed 's/[^a-zA-Z0-9-]/-/g') # Sanitize
-            if [ -z "$IDENTIFIER" ]; then
-              echo "::warning::Could not extract identifier from raw version '$RAW_VERSION', using timestamp."
-              IDENTIFIER=$(date +%Y%m%d%H%M%S)
-            fi
-            VALID_VERSION="0.0.0-stg.$IDENTIFIER"
-            echo "Generated staging Helm version: $VALID_VERSION"
-          else
-            echo "::error::Unknown environment: '$ENVIRONMENT'. Must be 'stg' or 'prod'."
-            exit 1
-          fi
-
-          # Final validation against Helm requirements (covers both prod and stg formats)
-          if ! echo "$VALID_VERSION" | grep -Eq "^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$"; then
-            echo "::error::Invalid final version format for Helm: '$VALID_VERSION'"
-            echo "Version must match pattern: X.Y.Z or X.Y.Z-prerelease.identifier"
-            exit 1
-          fi
-
-          echo "Final Helm version to be used: $VALID_VERSION"
-          echo "version=$VALID_VERSION" >> $GITHUB_OUTPUT
+          echo "Using version: ${{ steps.process-tag.outputs.version }}"
+          echo "Using tag name: ${{ steps.process-tag.outputs.tag_name }}"
+          echo "Using git hash: ${{ steps.process-tag.outputs.git_hash }}"
+          echo "Using deploy tag: ${{ steps.process-tag.outputs.deploy_tag }}"
 
       - name: Trigger Helm Update
         env:
@@ -108,10 +72,10 @@ jobs:
             --ref main
 
           echo "✓ Helm update workflow triggered on main branch"
-          
+
           # Wait briefly to ensure the workflow starts
           sleep 5
-          
+
           # Get the run ID of the triggered workflow
           RUN_ID=$(gh run list --workflow=update-helm.yaml --json databaseId --jq '.[0].databaseId')
           if [ -n "$RUN_ID" ]; then
@@ -179,14 +143,32 @@ jobs:
             echo "charts_exist=true" >> $GITHUB_OUTPUT
           fi
 
+      - name: Create Git Tag
+        if: steps.check_charts.outputs.charts_exist == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          TAG_NAME="${{ steps.parse.outputs.tag_name }}"
+          echo "Creating git tag: $TAG_NAME"
+
+          # Check if tag already exists
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Tag $TAG_NAME already exists, skipping tag creation"
+          else
+            git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
+            git push origin "$TAG_NAME"
+            echo "Created and pushed tag: $TAG_NAME"
+          fi
+
       - name: Create GitHub Release
         if: steps.check_charts.outputs.charts_exist == 'true'
         uses: softprops/action-gh-release@v2.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
         with:
-          tag_name: v${{ steps.parse.outputs.raw_version }}
-          name: Release v${{ steps.parse.outputs.raw_version }}
+          tag_name: ${{ steps.parse.outputs.tag_name }}
+          name: Release ${{ steps.parse.outputs.tag_name }}
           files: |
             dist/fastapi-dev/*.tgz
             dist/fastapi-staging/*.tgz
@@ -203,10 +185,10 @@ jobs:
             - Production
 
             ### Version Information
-            - Raw Version: v${{ steps.parse.outputs.raw_version }}
             - Semantic Version for Helm: ${{ steps.parse.outputs.version }}
             - Environment: ${{ steps.parse.outputs.environment }}
-            - Original Semantic Version: ${{ github.event.client_payload.semantic_version }}
+            - Original Version: ${{ steps.parse.outputs.raw_version }}
+            - Git Hash: ${{ steps.parse.outputs.git_hash }}
 
             ### Image Tags
             - Dev/Staging: ${{ steps.parse.outputs.version }}-stg
@@ -216,7 +198,7 @@ jobs:
       - name: Debug Release Creation
         if: steps.check_charts.outputs.charts_exist == 'true'
         run: |
-          echo "A new GitHub release was created with tag v${{ steps.parse.outputs.raw_version }}"
+          echo "A new GitHub release was created with tag ${{ steps.parse.outputs.tag_name }}"
           echo "Using semantic version ${{ steps.parse.outputs.version }} for Helm charts"
           echo "This should trigger the update-helm.yaml workflow via the release: [published] event"
           echo "If update-helm.yaml doesn't run, check if the release was actually published (not a draft)"
