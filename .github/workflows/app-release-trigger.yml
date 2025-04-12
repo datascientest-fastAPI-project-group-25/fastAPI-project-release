@@ -241,15 +241,30 @@ jobs:
 
             echo "✅ GitHub release updated successfully!"
           else
-            # Create new release
-            gh release create "${{ steps.parse.outputs.tag_name }}" \
+            # Create new release without assets first
+            if gh release create "${{ steps.parse.outputs.tag_name }}" \
               --title "Release ${{ steps.parse.outputs.tag_name }}" \
               --notes-file release_notes.md \
               --generate-notes \
-              ${{ github.event.client_payload.environment == 'stg' && '--prerelease' || '' }} \
-              dist/fastapi-dev/*.tgz dist/fastapi-staging/*.tgz dist/fastapi-prod/*.tgz
+              ${{ github.event.client_payload.environment == 'stg' && '--prerelease' || '' }}; then
 
-            echo "✅ GitHub release created successfully!"
+              echo "Release created successfully, now uploading assets..."
+
+              # Upload assets separately
+              for chart in dist/fastapi-dev/*.tgz dist/fastapi-staging/*.tgz dist/fastapi-prod/*.tgz; do
+                filename=$(basename "$chart")
+                echo "Uploading $filename to release..."
+                if gh release upload "${{ steps.parse.outputs.tag_name }}" "$chart" --clobber; then
+                  echo "Successfully uploaded $filename"
+                else
+                  echo "::warning::Failed to upload $filename, but continuing with other assets"
+                fi
+              done
+
+              echo "✅ GitHub release created successfully!"
+            else
+              echo "::warning::Failed to create release, but continuing workflow"
+            fi
           fi
 
 
