@@ -13,8 +13,8 @@ on:
         default: production
         type: string
   release:
-    types: [published]
-    # Running only on 'published' prevents duplicate runs
+    types: [published, created]
+    # Supporting both production (published) and staging (created) release events
 
 jobs:
   update-helm:
