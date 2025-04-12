@@ -106,7 +106,23 @@ runs:
         echo "- Environment: $DEPLOY_ENVIRONMENT"
         echo "- Extracted git hash: $EXTRACTED_GIT_HASH"
 
-        # Normalize environment name
+        # Normalize environment name or detect from version if empty
+        if [[ -z "$DEPLOY_ENVIRONMENT" ]]; then
+          echo "Environment is empty, attempting to detect from version"
+          # Try to detect environment from version format
+          if [[ "$INPUT_RAW_VERSION" == stg-* || "$INPUT_RAW_VERSION" == vstg-* ]]; then
+            DEPLOY_ENVIRONMENT="stg"
+            echo "Detected staging environment from version prefix"
+          elif [[ "$INPUT_RAW_VERSION" == v[0-9]* ]]; then
+            DEPLOY_ENVIRONMENT="prod"
+            echo "Detected production environment from version prefix"
+          else
+            # Default to staging if we can't determine
+            DEPLOY_ENVIRONMENT="stg"
+            echo "Could not detect environment, defaulting to staging"
+          fi
+        fi
+
         NORMALIZED_ENV="$DEPLOY_ENVIRONMENT"
         if [[ "$DEPLOY_ENVIRONMENT" == "staging" ]]; then
           NORMALIZED_ENV="stg"
