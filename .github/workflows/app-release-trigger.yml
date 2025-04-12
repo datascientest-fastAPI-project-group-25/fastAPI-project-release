@@ -143,7 +143,7 @@ jobs:
             echo "charts_exist=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Create Git Tag
+      - name: Handle Git Tag
         if: steps.check_charts.outputs.charts_exist == 'true'
         id: create_tag
         run: |
@@ -151,30 +151,38 @@ jobs:
           git config --local user.name "GitHub Action"
 
           TAG_NAME="${{ steps.parse.outputs.tag_name }}"
-          echo "Creating git tag: $TAG_NAME"
-
-          # Check if tag already exists
-          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
-            echo "Tag $TAG_NAME already exists, skipping tag creation"
-            echo "tag_exists=true" >> $GITHUB_OUTPUT
-          else
-            git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
-            git push origin "$TAG_NAME"
-            echo "Created and pushed tag: $TAG_NAME"
-            echo "tag_exists=true" >> $GITHUB_OUTPUT
-
-            # Add a small delay to ensure the tag is available for the release
-            echo "Waiting for tag to be available..."
-            sleep 5
-          fi
-
-          # Verify the tag exists remotely
+          echo "Handling git tag: $TAG_NAME"
+          
+          # Check if tag exists remotely
           if git ls-remote --tags origin | grep -q "$TAG_NAME"; then
-            echo "✓ Verified tag $TAG_NAME exists in remote repository"
+            echo "Tag $TAG_NAME already exists in remote repository"
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
             echo "tag_verified=true" >> $GITHUB_OUTPUT
           else
-            echo "::warning::Tag $TAG_NAME was not found in remote repository"
-            echo "tag_verified=false" >> $GITHUB_OUTPUT
+            # Check if tag exists locally
+            if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+              echo "Tag $TAG_NAME exists locally but not remotely, deleting and recreating"
+              git tag -d "$TAG_NAME"
+            fi
+            
+            # Create and push tag
+            echo "Creating new tag: $TAG_NAME"
+            git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
+            
+            if git push origin "$TAG_NAME"; then
+              echo "Successfully created and pushed tag: $TAG_NAME"
+              echo "tag_exists=true" >> $GITHUB_OUTPUT
+              echo "tag_verified=true" >> $GITHUB_OUTPUT
+              
+              # Add a small delay to ensure the tag is available for the release
+              echo "Waiting for tag to be available..."
+              sleep 5
+            else
+              echo "::error::Failed to push tag $TAG_NAME to remote repository"
+              echo "tag_exists=false" >> $GITHUB_OUTPUT
+              echo "tag_verified=false" >> $GITHUB_OUTPUT
+              exit 1
+            fi
           fi
 
       - name: Create GitHub Release
