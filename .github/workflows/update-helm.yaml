@@ -59,32 +59,54 @@ jobs:
             # Check if this is a duplicate run (same release, different event)
             EVENT_TYPE="${{ github.event.action }}"
             TAG="${{ github.event.release.tag_name }}"
-            
+
             # Skip "published" event for staging releases (vstg prefix)
             if [[ "$EVENT_TYPE" = "published" && "$TAG" == vstg-* ]]; then
               echo "Skipping published event for staging release with tag $TAG"
               exit 0
             fi
-            
+
             # Skip "created" event for production releases (v prefix without vstg)
             if [[ "$EVENT_TYPE" = "created" && "$TAG" == v* && "$TAG" != vstg-* ]]; then
               echo "Skipping created event for production release with tag $TAG"
               exit 0
             fi
-            
+
             # For releases, determine environment based on tag format
             if [[ "$TAG" == v* && "$TAG" != vstg-* ]]; then
               ENV="production"
             else
               ENV="staging"
             fi
-            
+
             echo "Triggered by release '$EVENT_TYPE' event for tag $TAG"
           else
             TAG="${{ github.event.inputs.tag }}"
             ENV="${{ github.event.inputs.env }}"
 
-            # Handle the tag format for staging (vstg-[GITHASH])
+            # Validate tag is not empty
+            if [[ -z "$TAG" ]]; then
+              echo "::error::Tag input is empty. This is required."
+              exit 1
+            fi
+
+            # Handle empty environment by detecting from tag format
+            if [[ -z "$ENV" ]]; then
+              echo "::warning::Environment input is empty, detecting from tag format"
+              if [[ "$TAG" == vstg-* || "$TAG" == stg-* ]]; then
+                ENV="staging"
+                echo "Detected staging environment from tag prefix"
+              elif [[ "$TAG" == v* ]]; then
+                ENV="production"
+                echo "Detected production environment from tag prefix"
+              else
+                # Default to staging if we can't determine
+                ENV="staging"
+                echo "Could not detect environment from tag, defaulting to staging"
+              fi
+            fi
+
+            # Override environment based on tag format for consistency
             if [[ "$TAG" == vstg-* ]]; then
               # This is a staging tag with semantic version
               ENV="staging"
@@ -99,7 +121,6 @@ jobs:
               echo "Detected v prefix, setting environment to production"
             fi
             echo "Triggered by workflow_dispatch with tag=$TAG, env=$ENV"
-          fi
 
           # Set outputs
           echo "tag=$TAG" >> $GITHUB_OUTPUT
