@@ -13,7 +13,8 @@ on:
         default: production
         type: string
   release:
-    types: [published, prereleased]
+    types: [published]
+    # Running only on 'published' prevents duplicate runs
 
 jobs:
   update-helm:
