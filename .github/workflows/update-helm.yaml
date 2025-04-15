@@ -140,6 +140,7 @@ jobs:
           echo "Using tag: $TAG"
           echo "Using environment: $ENV"
           echo "Using semantic version: $SEMVER"
+          fi
 
       - name: Process tag using local action
         id: process-tag
