@@ -94,16 +94,23 @@ jobs:
             RAW_VERSION="${{ github.event.inputs.tag }}"
             ENV="${{ github.event.inputs.env }}"
 
+            # Validate inputs are not empty
+            if [[ -z "$RAW_VERSION" ]]; then
+              echo "::error::Tag input is empty. This is required."
+              exit 1
+            fi
+
+            if [[ -z "$ENV" ]]; then
+              echo "::warning::Environment input is empty. Defaulting to 'production'."
+              ENV="production"
+            fi
             # Normalize environment
             if [[ "$ENV" == "production" ]]; then
               ENV="prod"
             elif [[ "$ENV" == "staging" ]]; then
               ENV="stg"
-            fi
-
-            # Validate tag is not empty
-            if [[ -z "$RAW_VERSION" ]]; then
-              echo "::error::Tag input is empty. This is required."
+            elif [[ "$ENV" != "prod" && "$ENV" != "stg" ]]; then
+              echo "::error::Invalid environment: '$ENV'. Must be one of: 'stg', 'staging', 'prod', 'production'."
               exit 1
             fi
 
@@ -131,25 +138,37 @@ jobs:
             fi
 
             # Override environment based on tag format for consistency
-            if [[ "$TAG" == vstg-* ]]; then
+            if [[ "$RAW_VERSION" == vstg-* ]]; then
               # This is a staging tag with semantic version
-              ENV="staging"
+              ENV="stg"
               echo "Detected vstg- prefix, setting environment to staging"
-            elif [[ "$TAG" == stg-* ]]; then
+            elif [[ "$RAW_VERSION" == stg-* ]]; then
               # This is a regular staging tag
-              ENV="staging"
+              ENV="stg"
               echo "Detected stg- prefix, setting environment to staging"
-            elif [[ "$TAG" == v* ]]; then
+            elif [[ "$RAW_VERSION" == v* ]]; then
               # This is a production tag
-              ENV="production"
+              ENV="prod"
               echo "Detected v prefix, setting environment to production"
             fi
-            echo "Triggered by workflow_dispatch with tag=$TAG, env=$ENV"
+            echo "Triggered by workflow_dispatch with tag=$RAW_VERSION, env=$ENV"
 
           # Set outputs
           echo "tag=$RAW_VERSION" >> $GITHUB_OUTPUT
           echo "env=$ENV" >> $GITHUB_OUTPUT
           echo "raw_version=$RAW_VERSION" >> $GITHUB_OUTPUT
+
+          # Ensure semantic_version is set
+          if [[ -z "$SEMANTIC_VERSION" ]]; then
+            # Try to extract semantic version from RAW_VERSION
+            if [[ "$RAW_VERSION" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+              SEMANTIC_VERSION="${BASH_REMATCH[1]}"
+              echo "Extracted semantic version from raw_version: $SEMANTIC_VERSION"
+            else
+              echo "::error::Could not determine semantic version from inputs"
+              exit 1
+            fi
+          fi
           echo "semantic_version=$SEMANTIC_VERSION" >> $GITHUB_OUTPUT
 
           # Print determined values for debugging
@@ -166,6 +185,8 @@ jobs:
           raw_version: ${{ steps.vars.outputs.raw_version }}
           environment: ${{ steps.vars.outputs.env }}
           semantic_version: ${{ steps.vars.outputs.semantic_version }}
+
+
 
       - name: Update Helm values with new image tag
         id: update_helm
