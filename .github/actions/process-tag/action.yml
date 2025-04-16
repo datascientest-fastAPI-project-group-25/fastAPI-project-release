@@ -51,15 +51,21 @@ runs:
 
         # Validate and fix semantic version
         SEMVER_REGEX='^[0-9]+\.[0-9]+\.[0-9]+$'
+        SEMVER_WITH_SUFFIX_REGEX='^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$'
 
         echo "\n📦 Validating semantic version"
         echo "- Input semantic version: $INPUT_SEMANTIC_VERSION"
         echo "- Raw version: $INPUT_RAW_VERSION"
         echo "- Environment: $DEPLOY_ENVIRONMENT"
 
-        # First check if semantic_version is already valid
+        # First check if semantic_version is already valid (either clean or with suffix)
         if [[ "$INPUT_SEMANTIC_VERSION" =~ $SEMVER_REGEX ]]; then
           echo "✅ Semantic version is already valid: $INPUT_SEMANTIC_VERSION"
+        elif [[ "$INPUT_SEMANTIC_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-stg$ ]]; then
+          # Handle the case where semantic_version has -stg suffix (common for staging)
+          CLEAN_SEMVER="${BASH_REMATCH[1]}"
+          echo "✅ Extracted clean semantic version $CLEAN_SEMVER from staging version: $INPUT_SEMANTIC_VERSION"
+          INPUT_SEMANTIC_VERSION="$CLEAN_SEMVER"
         else
           echo "⚠️ Semantic version '$INPUT_SEMANTIC_VERSION' is not valid or empty"
 
