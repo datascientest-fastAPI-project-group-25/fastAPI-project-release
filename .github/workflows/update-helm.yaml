@@ -131,20 +131,20 @@ jobs:
             fi
 
             # Override environment based on tag format for consistency
-            if [[ "$TAG" == vstg-* ]]; then
+            if [[ "$RAW_VERSION" == vstg-* ]]; then
               # This is a staging tag with semantic version
-              ENV="staging"
+              ENV="stg"
               echo "Detected vstg- prefix, setting environment to staging"
-            elif [[ "$TAG" == stg-* ]]; then
+            elif [[ "$RAW_VERSION" == stg-* ]]; then
               # This is a regular staging tag
-              ENV="staging"
+              ENV="stg"
               echo "Detected stg- prefix, setting environment to staging"
-            elif [[ "$TAG" == v* ]]; then
+            elif [[ "$RAW_VERSION" == v* ]]; then
               # This is a production tag
-              ENV="production"
+              ENV="prod"
               echo "Detected v prefix, setting environment to production"
             fi
-            echo "Triggered by workflow_dispatch with tag=$TAG, env=$ENV"
+            echo "Triggered by workflow_dispatch with tag=$RAW_VERSION, env=$ENV"
 
           # Set outputs
           echo "tag=$RAW_VERSION" >> $GITHUB_OUTPUT
@@ -165,6 +165,8 @@ jobs:
           raw_version: ${{ steps.vars.outputs.raw_version }}
           environment: ${{ steps.vars.outputs.env }}
           semantic_version: ${{ steps.vars.outputs.semantic_version }}
+
+
 
       - name: Update Helm values with new image tag
         id: update_helm
