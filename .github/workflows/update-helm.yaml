@@ -176,6 +176,7 @@ jobs:
           echo "Using tag: $RAW_VERSION"
           echo "Using environment: $ENV"
           echo "Using semantic version: $SEMANTIC_VERSION"
+          # End of the if statement for event type check
           fi
 
       - name: Process tag using local action
