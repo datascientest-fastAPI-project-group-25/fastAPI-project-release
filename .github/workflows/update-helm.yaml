@@ -94,16 +94,24 @@ jobs:
             RAW_VERSION="${{ github.event.inputs.tag }}"
             ENV="${{ github.event.inputs.env }}"
 
+            # Validate inputs are not empty
+            if [[ -z "$RAW_VERSION" ]]; then
+              echo "::error::Tag input is empty. This is required."
+              exit 1
+            fi
+
+            if [[ -z "$ENV" ]]; then
+              echo "::warning::Environment input is empty. Defaulting to 'production'."
+              ENV="production"
+            fi
+
             # Normalize environment
             if [[ "$ENV" == "production" ]]; then
               ENV="prod"
             elif [[ "$ENV" == "staging" ]]; then
               ENV="stg"
-            fi
-
-            # Validate tag is not empty
-            if [[ -z "$RAW_VERSION" ]]; then
-              echo "::error::Tag input is empty. This is required."
+            elif [[ "$ENV" != "prod" && "$ENV" != "stg" ]]; then
+              echo "::error::Invalid environment: '$ENV'. Must be one of: 'stg', 'staging', 'prod', 'production'."
               exit 1
             fi
 
