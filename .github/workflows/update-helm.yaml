@@ -234,7 +234,16 @@ jobs:
           echo "::endgroup::"
 
           echo "::group::Updating Image Tags"
-          DEPLOY_TAG="${{ steps.process-tag.outputs.deploy_tag }}"
+          # Use the correct output variable from process-tag action
+          # For staging, we want to use the raw version (stg-hash format)
+          # For production, we want to use the semantic version
+          if [[ "${{ steps.vars.outputs.env }}" == "stg" ]]; then
+            # For staging, use the raw version (stg-hash)
+            DEPLOY_TAG="${{ steps.vars.outputs.raw_version }}"
+          else
+            # For production, use the semantic version
+            DEPLOY_TAG="${{ steps.vars.outputs.semantic_version }}"
+          fi
           ENV="${{ steps.vars.outputs.env }}"
 
           # Pass the FILE_ENV to the Makefile
