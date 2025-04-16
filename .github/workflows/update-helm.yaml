@@ -50,7 +50,7 @@ jobs:
             echo "  Tag: ${{ github.event.inputs.tag }}"
             echo "  Environment: ${{ github.event.inputs.env }}"
           fi
-          
+
       - name: Determine tag and environment
         id: vars
         run: |
@@ -93,7 +93,7 @@ jobs:
             # For workflow_dispatch, use the inputs directly
             RAW_VERSION="${{ github.event.inputs.tag }}"
             ENV="${{ github.event.inputs.env }}"
-            
+
             # Normalize environment
             if [[ "$ENV" == "production" ]]; then
               ENV="prod"
@@ -156,6 +156,7 @@ jobs:
           echo "Using tag: $RAW_VERSION"
           echo "Using environment: $ENV"
           echo "Using semantic version: $SEMANTIC_VERSION"
+          # End of the if statement for event type check
           fi
 
       - name: Process tag using local action
@@ -180,9 +181,9 @@ jobs:
 
           # Normalize environment for file paths
           if [[ "${{ steps.vars.outputs.env }}" == "prod" ]]; then
-            ENV_DIR="fastapi-prod"
+            ENV_DIR="production"
           elif [[ "${{ steps.vars.outputs.env }}" == "stg" ]]; then
-            ENV_DIR="fastapi-staging"
+            ENV_DIR="staging"
           else
             echo "::error::Unsupported environment: ${{ steps.vars.outputs.env }}"
             exit 1

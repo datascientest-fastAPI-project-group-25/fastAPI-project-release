@@ -12,6 +12,10 @@ inputs:
     description: 'Semantic version from payload, potentially with -stg suffix (e.g., X.Y.Z or X.Y.Z-stg)'
     required: true
     default: ''
+  clean_semver:
+    description: 'Clean semantic version without environment suffix (e.g., X.Y.Z)'
+    required: false
+    default: ''
 
 outputs:
   version:
@@ -37,6 +41,7 @@ runs:
         # --- Input Variables (Renamed for clarity) ---
         INPUT_PAYLOAD_VERSION="${{ inputs.raw_version }}"         # Expected: stg-<hash> (stg), X.Y.Z (prod)
         INPUT_HELM_CHART_VERSION="${{ inputs.semantic_version }}" # Expected: X.Y.Z-stg (stg), X.Y.Z (prod)
+        INPUT_CLEAN_SEMVER="${{ inputs.clean_semver }}"           # Expected: X.Y.Z (clean semantic version)
         INPUT_ENVIRONMENT="${{ inputs.environment }}"             # Expected: stg or prod
 
         # --- Constants & Regex ---
@@ -57,6 +62,7 @@ runs:
         log_info "Starting version processing..."
         log_info "- Payload Version (inputs.raw_version): '$INPUT_PAYLOAD_VERSION'"
         log_info "- Helm Chart Version (inputs.semantic_version): '$INPUT_HELM_CHART_VERSION'"
+        log_info "- Clean Semantic Version (inputs.clean_semver): '$INPUT_CLEAN_SEMVER'"
         log_info "- Environment: '$INPUT_ENVIRONMENT'"
 
         # --- 1. Normalize Environment ---
@@ -72,34 +78,47 @@ runs:
         fi
 
         # --- 2. Validate and Extract Clean Semantic Version (X.Y.Z) ---
-        log_info "Extracting clean semantic version from Helm Chart Version '$INPUT_HELM_CHART_VERSION'"
-        if [[ "$INPUT_HELM_CHART_VERSION" =~ $SEMVER_REGEX ]]; then
+        log_info "Determining clean semantic version..."
+
+        # First, try to use the clean_semver input if provided
+        if [[ -n "$INPUT_CLEAN_SEMVER" && "$INPUT_CLEAN_SEMVER" =~ $SEMVER_REGEX ]]; then
+          CLEAN_SEMANTIC_VERSION="$INPUT_CLEAN_SEMVER"
+          log_success "Using provided clean semantic version: $CLEAN_SEMANTIC_VERSION"
+        # Otherwise, extract from semantic_version
+        elif [[ "$INPUT_HELM_CHART_VERSION" =~ $SEMVER_REGEX ]]; then
           # Input is already a clean semantic version (e.g., 1.2.3) - expected for prod
           if [[ "$NORMALIZED_ENV" != "prod" ]]; then
-            log_error "Received clean semantic version '$INPUT_HELM_CHART_VERSION' but environment is '$NORMALIZED_ENV'. Expected X.Y.Z-stg format for staging."
+            log_info "Received clean semantic version '$INPUT_HELM_CHART_VERSION' but environment is '$NORMALIZED_ENV'."
           fi
           CLEAN_SEMANTIC_VERSION="$INPUT_HELM_CHART_VERSION"
-          log_success "Using clean semantic version for prod: $CLEAN_SEMANTIC_VERSION"
+          log_success "Using clean semantic version from semantic_version: $CLEAN_SEMANTIC_VERSION"
         elif [[ "$INPUT_HELM_CHART_VERSION" =~ $SEMVER_WITH_STG_SUFFIX_REGEX ]]; then
           # Input has -stg suffix (e.g., 1.2.3-stg) - expected for stg
           if [[ "$NORMALIZED_ENV" != "stg" ]]; then
-            log_error "Received staging semantic version '$INPUT_HELM_CHART_VERSION' but environment is '$NORMALIZED_ENV'. Expected clean X.Y.Z format for production."
+            log_info "Received staging semantic version '$INPUT_HELM_CHART_VERSION' but environment is '$NORMALIZED_ENV'."
           fi
           CLEAN_SEMANTIC_VERSION="${BASH_REMATCH[1]}"
-          log_success "Extracted clean semantic version for stg: $CLEAN_SEMANTIC_VERSION"
+          log_success "Extracted clean semantic version from semantic_version: $CLEAN_SEMANTIC_VERSION"
         else
-          log_error "Invalid Helm Chart Version (inputs.semantic_version) format: '$INPUT_HELM_CHART_VERSION'. Expected X.Y.Z or X.Y.Z-stg."
+          log_error "Invalid semantic version format: '$INPUT_HELM_CHART_VERSION'. Expected X.Y.Z or X.Y.Z-stg."
         fi
 
         # --- 3. Extract Git Hash (only for staging) ---
         if [[ "$NORMALIZED_ENV" == "stg" ]]; then
           log_info "Extracting Git hash from Payload Version '$INPUT_PAYLOAD_VERSION' for staging..."
           if [[ "$INPUT_PAYLOAD_VERSION" =~ $STG_HASH_REGEX ]]; then
+            # Standard format: stg-<hash>
             LONG_HASH="${BASH_REMATCH[1]}"
             SHORT_HASH="${LONG_HASH:0:7}"
             log_success "Extracted short Git hash: $SHORT_HASH"
+          elif [[ "$INPUT_PAYLOAD_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-stg)?$ ]]; then
+            # Handle the case where we get a semantic version instead of stg-<hash>
+            # This happens when the workflow is triggered manually
+            # Generate a random hash to use as a placeholder
+            SHORT_HASH=$(date +%s | md5sum | head -c 7)
+            log_info "No hash found in payload version. Using generated hash: $SHORT_HASH"
           else
-            log_error "Invalid Payload Version format for staging: '$INPUT_PAYLOAD_VERSION'. Expected 'stg-<hash>'."
+            log_error "Invalid Payload Version format for staging: '$INPUT_PAYLOAD_VERSION'. Expected 'stg-<hash>' or 'X.Y.Z[-stg]'."
           fi
         else
            SHORT_HASH="" # Ensure hash is empty for prod

@@ -30,6 +30,7 @@ jobs:
           echo "version: '${{ github.event.client_payload.version }}'"
           echo "environment: '${{ github.event.client_payload.environment }}'"
           echo "semantic_version: '${{ github.event.client_payload.semantic_version }}'"
+          echo "clean_semver: '${{ github.event.client_payload.clean_semver }}'"
           echo "backend_image: '${{ github.event.client_payload.backend_image }}'"
           echo "frontend_image: '${{ github.event.client_payload.frontend_image }}'"
 
@@ -40,6 +41,7 @@ jobs:
           raw_version: ${{ github.event.client_payload.version }}
           environment: ${{ github.event.client_payload.environment }}
           semantic_version: ${{ github.event.client_payload.semantic_version }}
+          clean_semver: ${{ github.event.client_payload.clean_semver }}
 
       - name: Set outputs for backward compatibility
         id: parse
