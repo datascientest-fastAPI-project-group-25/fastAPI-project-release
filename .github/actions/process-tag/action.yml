@@ -237,7 +237,9 @@ runs:
             fi
           else
             # Fallback to version-based tag if no git hash is available
-            RELEASE_TAG_NAME="vstg-$(echo $PROCESSED_VERSION | sed 's/\./\-/g')"
+            # Remove the -stg suffix from PROCESSED_VERSION to avoid redundancy
+            CLEAN_VERSION=$(echo $PROCESSED_VERSION | sed 's/-stg$//')
+            RELEASE_TAG_NAME="vstg-$(echo $CLEAN_VERSION | sed 's/\./\-/g')"
             echo "Using version-based tag name: $RELEASE_TAG_NAME"
           fi
         else

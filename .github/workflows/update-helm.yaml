@@ -13,8 +13,8 @@ on:
         default: production
         type: string
   release:
-    types: [created, published]
-    # Handle both staging ('created') and production ('published') release events
+    types: [published]
+    # Only trigger on published releases to avoid duplicate runs
 
 jobs:
   update-helm:
@@ -60,17 +60,8 @@ jobs:
             EVENT_TYPE="${{ github.event.action }}"
             TAG="${{ github.event.release.tag_name }}"
 
-            # Skip "published" event for staging releases (vstg prefix)
-            if [[ "$EVENT_TYPE" = "published" && "$TAG" == vstg-* ]]; then
-              echo "Skipping published event for staging release with tag $TAG"
-              exit 0
-            fi
-
-            # Skip "created" event for production releases (v prefix without vstg)
-            if [[ "$EVENT_TYPE" = "created" && "$TAG" == v* && "$TAG" != vstg-* ]]; then
-              echo "Skipping created event for production release with tag $TAG"
-              exit 0
-            fi
+            # We're now only handling published events, so no need to skip any events
+            echo "Processing published event for tag $TAG"
 
             # For releases, determine environment based on tag format
             if [[ "$TAG" == v* && "$TAG" != vstg-* ]]; then
