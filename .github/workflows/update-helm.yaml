@@ -158,6 +158,18 @@ jobs:
           echo "tag=$RAW_VERSION" >> $GITHUB_OUTPUT
           echo "env=$ENV" >> $GITHUB_OUTPUT
           echo "raw_version=$RAW_VERSION" >> $GITHUB_OUTPUT
+
+          # Ensure semantic_version is set
+          if [[ -z "$SEMANTIC_VERSION" ]]; then
+            # Try to extract semantic version from RAW_VERSION
+            if [[ "$RAW_VERSION" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+              SEMANTIC_VERSION="${BASH_REMATCH[1]}"
+              echo "Extracted semantic version from raw_version: $SEMANTIC_VERSION"
+            else
+              echo "::error::Could not determine semantic version from inputs"
+              exit 1
+            fi
+          fi
           echo "semantic_version=$SEMANTIC_VERSION" >> $GITHUB_OUTPUT
 
           # Print determined values for debugging
