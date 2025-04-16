@@ -50,7 +50,7 @@ jobs:
             echo "  Tag: ${{ github.event.inputs.tag }}"
             echo "  Environment: ${{ github.event.inputs.env }}"
           fi
-
+          
       - name: Determine tag and environment
         id: vars
         run: |
@@ -58,42 +58,75 @@ jobs:
           if [ "${{ github.event_name }}" = "release" ]; then
             # Check if this is a duplicate run (same release, different event)
             EVENT_TYPE="${{ github.event.action }}"
-            TAG="${{ github.event.release.tag_name }}"
+            RAW_TAG="${{ github.event.release.tag_name }}"
 
             # We're now only handling published events, so no need to skip any events
-            echo "Processing published event for tag $TAG"
+            echo "Processing published event for tag $RAW_TAG"
 
             # For releases, determine environment based on tag format
-            if [[ "$TAG" == v* && "$TAG" != vstg-* ]]; then
-              ENV="production"
+            if [[ "$RAW_TAG" == v* && "$RAW_TAG" != vstg-* ]]; then
+              ENV="prod"
+              # Extract semantic version from tag (remove 'v' prefix)
+              SEMANTIC_VERSION="${RAW_TAG#v}"
+              # Use the tag as the raw version (for production, this is the same as the semantic version)
+              RAW_VERSION="$SEMANTIC_VERSION"
             else
-              ENV="staging"
+              ENV="stg"
+              # For vstg tags, extract both the semantic version and git hash
+              # Format is typically vstg-X.Y.Z-hash
+              if [[ "$RAW_TAG" =~ vstg-([0-9]+\.[0-9]+\.[0-9]+)-([a-f0-9]+) ]]; then
+                SEMANTIC_VERSION="${BASH_REMATCH[1]}-stg"
+                RAW_VERSION="stg-${BASH_REMATCH[2]}"
+              else
+                echo "::warning::Could not parse semantic version from tag $RAW_TAG"
+                # Fallback to using the tag as is
+                SEMANTIC_VERSION=""
+                RAW_VERSION="$RAW_TAG"
+              fi
             fi
 
-            echo "Triggered by release '$EVENT_TYPE' event for tag $TAG"
+            echo "Triggered by release '$EVENT_TYPE' event for tag $RAW_TAG"
+            echo "Extracted environment: $ENV"
+            echo "Extracted semantic version: $SEMANTIC_VERSION"
+            echo "Extracted raw version: $RAW_VERSION"
           else
-            TAG="${{ github.event.inputs.tag }}"
+            # For workflow_dispatch, use the inputs directly
+            RAW_VERSION="${{ github.event.inputs.tag }}"
             ENV="${{ github.event.inputs.env }}"
+            
+            # Normalize environment
+            if [[ "$ENV" == "production" ]]; then
+              ENV="prod"
+            elif [[ "$ENV" == "staging" ]]; then
+              ENV="stg"
+            fi
 
             # Validate tag is not empty
-            if [[ -z "$TAG" ]]; then
+            if [[ -z "$RAW_VERSION" ]]; then
               echo "::error::Tag input is empty. This is required."
               exit 1
             fi
 
-            # Handle empty environment by detecting from tag format
-            if [[ -z "$ENV" ]]; then
-              echo "::warning::Environment input is empty, detecting from tag format"
-              if [[ "$TAG" == vstg-* || "$TAG" == stg-* ]]; then
-                ENV="staging"
-                echo "Detected staging environment from tag prefix"
-              elif [[ "$TAG" == v* ]]; then
-                ENV="production"
-                echo "Detected production environment from tag prefix"
+            # Derive semantic version from raw version if possible
+            if [[ "$RAW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              # Clean semantic version (e.g., 1.2.3)
+              SEMANTIC_VERSION="$RAW_VERSION"
+              if [[ "$ENV" == "stg" ]]; then
+                SEMANTIC_VERSION="${SEMANTIC_VERSION}-stg"
+              fi
+            elif [[ "$RAW_VERSION" =~ ^stg-([a-f0-9]+)$ ]]; then
+              # Staging hash format
+              SEMANTIC_VERSION=""
+            else
+              # Try to extract semantic version from the raw version
+              if [[ "$RAW_VERSION" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+                SEMANTIC_VERSION="${BASH_REMATCH[1]}"
+                if [[ "$ENV" == "stg" ]]; then
+                  SEMANTIC_VERSION="${SEMANTIC_VERSION}-stg"
+                fi
               else
-                # Default to staging if we can't determine
-                ENV="staging"
-                echo "Could not detect environment from tag, defaulting to staging"
+                echo "::warning::Could not extract semantic version from $RAW_VERSION"
+                SEMANTIC_VERSION=""
               fi
             fi
 
@@ -114,23 +147,15 @@ jobs:
             echo "Triggered by workflow_dispatch with tag=$TAG, env=$ENV"
 
           # Set outputs
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "tag=$RAW_VERSION" >> $GITHUB_OUTPUT
           echo "env=$ENV" >> $GITHUB_OUTPUT
-          echo "raw_version=$TAG" >> $GITHUB_OUTPUT
-
-          # Extract semantic version if possible
-          SEMVER=""
-          if [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
-            SEMVER="${BASH_REMATCH[1]}"
-          elif [[ "$TAG" =~ ^vstg-([0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
-            SEMVER="${BASH_REMATCH[1]}"
-          fi
-          echo "semantic_version=$SEMVER" >> $GITHUB_OUTPUT
+          echo "raw_version=$RAW_VERSION" >> $GITHUB_OUTPUT
+          echo "semantic_version=$SEMANTIC_VERSION" >> $GITHUB_OUTPUT
 
           # Print determined values for debugging
-          echo "Using tag: $TAG"
+          echo "Using tag: $RAW_VERSION"
           echo "Using environment: $ENV"
-          echo "Using semantic version: $SEMVER"
+          echo "Using semantic version: $SEMANTIC_VERSION"
           fi
 
       - name: Process tag using local action
@@ -145,23 +170,25 @@ jobs:
         id: update_helm
         run: |
           echo "::group::Environment and Tag Information"
-          echo "Tag: ${{ steps.vars.outputs.tag }}"
+          echo "Raw Version: ${{ steps.vars.outputs.raw_version }}"
+          echo "Semantic Version: ${{ steps.vars.outputs.semantic_version }}"
           echo "Environment: ${{ steps.vars.outputs.env }}"
-          echo "Deploy Tag: ${{ steps.process-tag.outputs.deploy_tag }}"
+          echo "Processed Version: ${{ steps.process-tag.outputs.version }}"
+          echo "Processed Tag Name: ${{ steps.process-tag.outputs.tag_name }}"
+          echo "Processed Git Hash: ${{ steps.process-tag.outputs.git_hash }}"
           echo "::endgroup::"
 
-          echo "::group::Helm Values File Validation"
-          # Normalize environment name for file paths
-          FILE_ENV="${{ steps.vars.outputs.env }}"
-          if [ "${{ steps.vars.outputs.env }}" = "stg" ]; then
-            FILE_ENV="staging"
-            echo "Normalized environment name from 'stg' to 'staging' for file path"
-          elif [ "${{ steps.vars.outputs.env }}" = "prod" ]; then
-            FILE_ENV="production"
-            echo "Normalized environment name from 'prod' to 'production' for file path"
+          # Normalize environment for file paths
+          if [[ "${{ steps.vars.outputs.env }}" == "prod" ]]; then
+            ENV_DIR="fastapi-prod"
+          elif [[ "${{ steps.vars.outputs.env }}" == "stg" ]]; then
+            ENV_DIR="fastapi-staging"
+          else
+            echo "::error::Unsupported environment: ${{ steps.vars.outputs.env }}"
+            exit 1
           fi
 
-          VALUES_FILE="config/helm/$FILE_ENV.yaml"
+          VALUES_FILE="config/helm/$ENV_DIR.yaml"
           if [ ! -f "$VALUES_FILE" ]; then
             echo "::error::Values file $VALUES_FILE does not exist"
             echo "Available files in config/helm/:"
