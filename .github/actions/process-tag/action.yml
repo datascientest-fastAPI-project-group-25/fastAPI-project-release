@@ -3,29 +3,26 @@ description: 'Process version tags for releases and deployments'
 
 inputs:
   raw_version:
-    description: 'Raw version string from payload'
+    description: 'Raw version string from payload (e.g., stg-<hash> or X.Y.Z)'
     required: true
   environment:
     description: 'Environment (stg or prod)'
     required: true
   semantic_version:
-    description: 'Semantic version from payload'
-    required: false
+    description: 'Semantic version from payload, potentially with -stg suffix (e.g., X.Y.Z or X.Y.Z-stg)'
+    required: true
     default: ''
 
 outputs:
   version:
-    description: 'Processed version for Helm charts'
-    value: ${{ steps.process.outputs.version }}
+    description: 'Processed version for Helm charts (e.g., X.Y.Z-stg or X.Y.Z)'
+    value: ${{ steps.process.outputs.helm_chart_version }}
   tag_name:
-    description: 'Tag name for GitHub release'
+    description: 'Tag name for GitHub release (e.g., vstg-X.Y.Z-<hash> or vX.Y.Z)'
     value: ${{ steps.process.outputs.tag_name }}
   git_hash:
-    description: 'Git hash extracted from version'
+    description: 'Git hash extracted from version (short 7-char hash or empty string)'
     value: ${{ steps.process.outputs.git_hash }}
-  deploy_tag:
-    description: 'Tag to use for deployment'
-    value: ${{ steps.process.outputs.deploy_tag }}
 
 runs:
   using: 'composite'
@@ -34,243 +31,100 @@ runs:
       id: process
       shell: bash
       run: |
-        # Input variables with clear names
-        INPUT_RAW_VERSION="${{ inputs.raw_version }}"
-        INPUT_SEMANTIC_VERSION="${{ inputs.semantic_version }}"
-        DEPLOY_ENVIRONMENT="${{ inputs.environment }}"
+        set -e
+        set -o pipefail
 
-        # Constants and regex patterns
-        SEMVER_PATTERN='^[0-9]+\.[0-9]+\.[0-9]+$'
-        HELM_VERSION_PATTERN="^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$"
+        # --- Input Variables (Renamed for clarity) ---
+        INPUT_PAYLOAD_VERSION="${{ inputs.raw_version }}"         # Expected: stg-<hash> (stg), X.Y.Z (prod)
+        INPUT_HELM_CHART_VERSION="${{ inputs.semantic_version }}" # Expected: X.Y.Z-stg (stg), X.Y.Z (prod)
+        INPUT_ENVIRONMENT="${{ inputs.environment }}"             # Expected: stg or prod
 
-        # Initialize output variables
-        PROCESSED_VERSION=""
-
-        # Extract git hash from version string if present
-        EXTRACTED_GIT_HASH="$(echo $INPUT_RAW_VERSION | grep -o '[a-f0-9]\{7,40\}' || echo '')"
-
-        # Validate and fix semantic version
+        # --- Constants & Regex ---
         SEMVER_REGEX='^[0-9]+\.[0-9]+\.[0-9]+$'
-        SEMVER_WITH_SUFFIX_REGEX='^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$'
+        SEMVER_WITH_STG_SUFFIX_REGEX='^([0-9]+\.[0-9]+\.[0-9]+)-stg$'
+        STG_HASH_REGEX='^stg-([a-f0-9]{7,40})$'
 
-        echo "\n📦 Validating semantic version"
-        echo "- Input semantic version: $INPUT_SEMANTIC_VERSION"
-        echo "- Raw version: $INPUT_RAW_VERSION"
-        echo "- Environment: $DEPLOY_ENVIRONMENT"
+        # --- Helper Functions ---
+        log_error() { echo " Error: $1" >&2; exit 1; }
+        log_info() { echo "  $1"; }
+        log_success() { echo " $1"; }
 
-        # First check if semantic_version is already valid (either clean or with suffix)
-        if [[ "$INPUT_SEMANTIC_VERSION" =~ $SEMVER_REGEX ]]; then
-          echo "✅ Semantic version is already valid: $INPUT_SEMANTIC_VERSION"
-        elif [[ "$INPUT_SEMANTIC_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-stg$ ]]; then
-          # Handle the case where semantic_version has -stg suffix (common for staging)
-          CLEAN_SEMVER="${BASH_REMATCH[1]}"
-          echo "✅ Extracted clean semantic version $CLEAN_SEMVER from staging version: $INPUT_SEMANTIC_VERSION"
-          INPUT_SEMANTIC_VERSION="$CLEAN_SEMVER"
-        else
-          echo "⚠️ Semantic version '$INPUT_SEMANTIC_VERSION' is not valid or empty"
+        # --- Derived Variables ---
+        CLEAN_SEMANTIC_VERSION=""
+        SHORT_HASH=""
+        FINAL_TAG_NAME=""
 
-          # Check if semantic_version starts with stg- (common pattern in our workflow)
-          if [[ "$INPUT_SEMANTIC_VERSION" == stg-* ]]; then
-            echo "🔍 Semantic version starts with stg- prefix, extracting proper version"
-            # Try to extract a semantic version from it
-            if [[ "$INPUT_SEMANTIC_VERSION" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-              INPUT_SEMANTIC_VERSION="${BASH_REMATCH[1]}"
-              echo "✅ Extracted semantic version $INPUT_SEMANTIC_VERSION from stg- prefixed version"
-            else
-              echo "::error::Could not extract a valid semantic version from stg- prefixed version: '$INPUT_SEMANTIC_VERSION'"
-              echo "::error::Expected format: stg-X.Y.Z or stg-hash where X, Y, Z are integers"
-              exit 1
-            fi
-          # Look for X.Y.Z pattern in raw_version
-          elif [[ "$INPUT_RAW_VERSION" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-            INPUT_SEMANTIC_VERSION="${BASH_REMATCH[1]}"
-            echo "✅ Extracted semantic version $INPUT_SEMANTIC_VERSION from raw_version"
-          # If no semantic version is found, provide a clear error message
-          elif [[ "$DEPLOY_ENVIRONMENT" == "stg" || "$DEPLOY_ENVIRONMENT" == "staging" ]]; then
-            echo "::error::No valid semantic version found for staging build."
-            echo "::error::Received semantic_version: '$INPUT_SEMANTIC_VERSION'"
-            echo "::error::Received raw_version: '$INPUT_RAW_VERSION'"
-            echo "::error::Please ensure a valid semantic version is provided in the payload."
-            exit 1
-          else
-            # For production, this is a critical error
-            echo "::error::No valid semantic version found for production release."
-            echo "::error::Received semantic_version: '$INPUT_SEMANTIC_VERSION'"
-            echo "::error::Received raw_version: '$INPUT_RAW_VERSION'"
-            echo "::error::Production releases require a valid semantic version (e.g., 1.2.3)."
-            exit 1
-          fi
-        fi
+        log_info "Starting version processing..."
+        log_info "- Payload Version (inputs.raw_version): '$INPUT_PAYLOAD_VERSION'"
+        log_info "- Helm Chart Version (inputs.semantic_version): '$INPUT_HELM_CHART_VERSION'"
+        log_info "- Environment: '$INPUT_ENVIRONMENT'"
 
-        # Final check to ensure we have a valid semantic version
-        if [[ ! "$INPUT_SEMANTIC_VERSION" =~ $SEMVER_REGEX ]]; then
-          echo "::error::Failed to obtain a valid semantic version after processing."
-          echo "::error::Received semantic_version: '$INPUT_SEMANTIC_VERSION'"
-          echo "::error::Received raw_version: '$INPUT_RAW_VERSION'"
-          echo "::error::Please ensure a valid semantic version is provided in the payload."
-          exit 1
-        fi
-
-        # Use only first 7 characters of git hash for output to avoid issues with long hashes
-        if [[ -n "$EXTRACTED_GIT_HASH" ]]; then
-          SHORT_HASH="${EXTRACTED_GIT_HASH:0:7}"
-          echo "git_hash=$SHORT_HASH" >> $GITHUB_OUTPUT
-        else
-          echo "git_hash=unknown" >> $GITHUB_OUTPUT
-        fi
-
-        echo "Processing inputs:"
-        echo "- Raw version: $INPUT_RAW_VERSION"
-        echo "- Semantic version: $INPUT_SEMANTIC_VERSION"
-        echo "- Environment: $DEPLOY_ENVIRONMENT"
-        echo "- Extracted git hash: $EXTRACTED_GIT_HASH"
-
-        # Normalize environment name or detect from version if empty
-        if [[ -z "$DEPLOY_ENVIRONMENT" ]]; then
-          echo "Environment is empty, attempting to detect from version"
-          # Try to detect environment from version format
-          if [[ "$INPUT_RAW_VERSION" == stg-* || "$INPUT_RAW_VERSION" == vstg-* ]]; then
-            DEPLOY_ENVIRONMENT="stg"
-            echo "Detected staging environment from version prefix"
-          elif [[ "$INPUT_RAW_VERSION" == v[0-9]* ]]; then
-            DEPLOY_ENVIRONMENT="prod"
-            echo "Detected production environment from version prefix"
-          else
-            # Default to staging if we can't determine
-            DEPLOY_ENVIRONMENT="stg"
-            echo "Could not detect environment, defaulting to staging"
-          fi
-        fi
-
-        NORMALIZED_ENV="$DEPLOY_ENVIRONMENT"
-        if [[ "$DEPLOY_ENVIRONMENT" == "staging" ]]; then
+        # --- 1. Normalize Environment ---
+        NORMALIZED_ENV="$INPUT_ENVIRONMENT"
+        if [[ "$INPUT_ENVIRONMENT" == "staging" ]]; then
           NORMALIZED_ENV="stg"
-          echo "Normalized environment name from 'staging' to 'stg'"
-        elif [[ "$DEPLOY_ENVIRONMENT" == "production" ]]; then
+          log_info "Normalized environment to 'stg'"
+        elif [[ "$INPUT_ENVIRONMENT" == "production" ]]; then
           NORMALIZED_ENV="prod"
-          echo "Normalized environment name from 'production' to 'prod'"
+          log_info "Normalized environment to 'prod'"
+        elif [[ "$INPUT_ENVIRONMENT" != "stg" && "$INPUT_ENVIRONMENT" != "prod" ]]; then
+           log_error "Invalid environment received: '$INPUT_ENVIRONMENT'. Must be 'stg' or 'prod'."
         fi
 
-        # Process version based on environment
-        if [[ "$NORMALIZED_ENV" == "prod" ]]; then
-          echo "Processing production environment..."
-          # For production, we need a strict X.Y.Z semantic version
-          if [[ "$INPUT_SEMANTIC_VERSION" =~ $SEMVER_PATTERN ]]; then
-            echo "Using valid semantic_version from payload: $INPUT_SEMANTIC_VERSION"
-            PROCESSED_VERSION="$INPUT_SEMANTIC_VERSION"
-          elif [[ "$INPUT_RAW_VERSION" =~ $SEMVER_PATTERN ]]; then
-            echo "Using valid raw_version from payload: $INPUT_RAW_VERSION"
-            PROCESSED_VERSION="$INPUT_RAW_VERSION"
-          else
-            # Try extracting from semantic_version or raw_version
-            EXTRACTED_SEMVER=$(echo "$INPUT_SEMANTIC_VERSION" | grep -Eo "$SEMVER_PATTERN" || echo "$INPUT_RAW_VERSION" | grep -Eo "$SEMVER_PATTERN")
-            if [[ "$EXTRACTED_SEMVER" =~ $SEMVER_PATTERN ]]; then
-              echo "Extracted valid semantic version: $EXTRACTED_SEMVER"
-              PROCESSED_VERSION="$EXTRACTED_SEMVER"
-            else
-              echo "::error::Production environment requires a valid X.Y.Z semantic version"
-              echo "::error::Could not find or extract a valid semantic version from inputs"
-              echo "::error::Received semantic_version: '$INPUT_SEMANTIC_VERSION'"
-              echo "::error::Received raw_version: '$INPUT_RAW_VERSION'"
-              exit 1
-            fi
+        # --- 2. Validate and Extract Clean Semantic Version (X.Y.Z) ---
+        log_info "Extracting clean semantic version from Helm Chart Version '$INPUT_HELM_CHART_VERSION'"
+        if [[ "$INPUT_HELM_CHART_VERSION" =~ $SEMVER_REGEX ]]; then
+          # Input is already a clean semantic version (e.g., 1.2.3) - expected for prod
+          if [[ "$NORMALIZED_ENV" != "prod" ]]; then
+            log_error "Received clean semantic version '$INPUT_HELM_CHART_VERSION' but environment is '$NORMALIZED_ENV'. Expected X.Y.Z-stg format for staging."
           fi
-        elif [[ "$NORMALIZED_ENV" == "stg" ]]; then
-          echo "📦 Processing staging environment..."
-          # For staging, use the semantic version with -stg suffix if available
-          if [[ "$INPUT_SEMANTIC_VERSION" =~ $SEMVER_PATTERN ]]; then
-            echo "✅ Using semantic_version from payload with -stg suffix: $INPUT_SEMANTIC_VERSION-stg"
-            PROCESSED_VERSION="$INPUT_SEMANTIC_VERSION-stg"
-            # Store the clean semantic version for later use in tag generation
-            echo "semver_clean=$INPUT_SEMANTIC_VERSION" >> $GITHUB_OUTPUT
-          else
-            # This should never happen due to our validation above, but just in case
-            echo "::error::No valid semantic version found for staging environment."
-            echo "::error::Received semantic_version: '$INPUT_SEMANTIC_VERSION'"
-            echo "::error::Received raw_version: '$INPUT_RAW_VERSION'"
-            echo "::error::Please ensure a valid semantic version is provided in the payload."
-            exit 1
+          CLEAN_SEMANTIC_VERSION="$INPUT_HELM_CHART_VERSION"
+          log_success "Using clean semantic version for prod: $CLEAN_SEMANTIC_VERSION"
+        elif [[ "$INPUT_HELM_CHART_VERSION" =~ $SEMVER_WITH_STG_SUFFIX_REGEX ]]; then
+          # Input has -stg suffix (e.g., 1.2.3-stg) - expected for stg
+          if [[ "$NORMALIZED_ENV" != "stg" ]]; then
+            log_error "Received staging semantic version '$INPUT_HELM_CHART_VERSION' but environment is '$NORMALIZED_ENV'. Expected clean X.Y.Z format for production."
           fi
+          CLEAN_SEMANTIC_VERSION="${BASH_REMATCH[1]}"
+          log_success "Extracted clean semantic version for stg: $CLEAN_SEMANTIC_VERSION"
         else
-          echo "::error::Unknown environment: '$DEPLOY_ENVIRONMENT' (normalized to '$NORMALIZED_ENV')"
-          echo "::error::Environment must be one of: 'stg', 'staging', 'prod', 'production'"
-          exit 1
+          log_error "Invalid Helm Chart Version (inputs.semantic_version) format: '$INPUT_HELM_CHART_VERSION'. Expected X.Y.Z or X.Y.Z-stg."
         fi
 
-        # Final validation against Helm requirements
-        if ! echo "$PROCESSED_VERSION" | grep -Eq "$HELM_VERSION_PATTERN"; then
-          echo "::error::Invalid final version format for Helm: '$PROCESSED_VERSION'"
-          echo "::error::Version must match pattern: X.Y.Z or X.Y.Z-prerelease.identifier"
-          echo "::error::Examples of valid versions: 1.2.3, 1.2.3-alpha, 1.2.3-stg"
-          exit 1
-        fi
-
-        echo "Final Helm version to be used: $PROCESSED_VERSION"
-        echo "version=$PROCESSED_VERSION" >> $GITHUB_OUTPUT
-
-        # Generate a tag name for the release based on environment
-        RELEASE_TAG_NAME=""
+        # --- 3. Extract Git Hash (only for staging) ---
         if [[ "$NORMALIZED_ENV" == "stg" ]]; then
-          # For staging, create a tag that includes both semver and git hash if available
-          if [[ -n "$EXTRACTED_GIT_HASH" ]]; then
-            # Use only first 7 characters of git hash
-            SHORT_HASH="${EXTRACTED_GIT_HASH:0:7}"
-
-            # Get the semantic version from the output or input
-            SEMVER_FOR_TAG=""
-            if [[ -n "$(grep -o 'semver_clean=[0-9]\+\.[0-9]\+\.[0-9]\+' <<< "$(cat $GITHUB_OUTPUT)" | cut -d= -f2)" ]]; then
-              SEMVER_FOR_TAG="$(grep -o 'semver_clean=[0-9]\+\.[0-9]\+\.[0-9]\+' <<< "$(cat $GITHUB_OUTPUT)" | cut -d= -f2)"
-              echo "Using semantic version from output: $SEMVER_FOR_TAG"
-            elif [[ "$INPUT_SEMANTIC_VERSION" =~ $SEMVER_PATTERN ]]; then
-              SEMVER_FOR_TAG="$INPUT_SEMANTIC_VERSION"
-              echo "Using semantic version from input: $SEMVER_FOR_TAG"
-            fi
-
-            # Create tag with semver and hash if semver is available
-            if [[ -n "$SEMVER_FOR_TAG" ]]; then
-              RELEASE_TAG_NAME="vstg-$SEMVER_FOR_TAG-$SHORT_HASH"
-              echo "Using semantic version and git hash for tag name: $RELEASE_TAG_NAME"
-            else
-              # Fallback to just hash if no semver is available
-              RELEASE_TAG_NAME="vstg-$SHORT_HASH"
-              echo "Using git hash for tag name: $RELEASE_TAG_NAME"
-            fi
+          log_info "Extracting Git hash from Payload Version '$INPUT_PAYLOAD_VERSION' for staging..."
+          if [[ "$INPUT_PAYLOAD_VERSION" =~ $STG_HASH_REGEX ]]; then
+            LONG_HASH="${BASH_REMATCH[1]}"
+            SHORT_HASH="${LONG_HASH:0:7}"
+            log_success "Extracted short Git hash: $SHORT_HASH"
           else
-            # Fallback to version-based tag if no git hash is available
-            # Remove the -stg suffix from PROCESSED_VERSION to avoid redundancy
-            CLEAN_VERSION=$(echo $PROCESSED_VERSION | sed 's/-stg$//')
-            RELEASE_TAG_NAME="vstg-$(echo $CLEAN_VERSION | sed 's/\./\-/g')"
-            echo "Using version-based tag name: $RELEASE_TAG_NAME"
+            log_error "Invalid Payload Version format for staging: '$INPUT_PAYLOAD_VERSION'. Expected 'stg-<hash>'."
           fi
         else
-          # For production, use semantic version with v prefix
-          RELEASE_TAG_NAME="v$PROCESSED_VERSION"
-          echo "Using production tag name: $RELEASE_TAG_NAME"
+           SHORT_HASH="" # Ensure hash is empty for prod
+           log_info "Skipping hash extraction for prod environment."
         fi
 
-        echo "tag_name=$RELEASE_TAG_NAME" >> $GITHUB_OUTPUT
-
-        # Determine the tag to use for Helm deployments
-        HELM_DEPLOY_TAG="$PROCESSED_VERSION"
-
-        # For staging releases with vstg- prefix, check if we can extract a semantic version
-        if [[ "$RELEASE_TAG_NAME" == vstg-* ]]; then
-          # Try to extract semantic version from tag with format vstg-1.2.3-hash
-          if [[ "$RELEASE_TAG_NAME" =~ vstg-([0-9]+\.[0-9]+\.[0-9]+)-([a-f0-9]+)$ ]]; then
-            # Extract semantic version from tag if it contains one
-            EXTRACTED_TAG_VERSION="${BASH_REMATCH[1]}"
-            HELM_DEPLOY_TAG="$EXTRACTED_TAG_VERSION"
-            echo "Extracted semantic version $EXTRACTED_TAG_VERSION from tag $RELEASE_TAG_NAME"
-          # Try to extract semantic version from tag with format vstg-1.2.3
-          elif [[ "$RELEASE_TAG_NAME" =~ vstg-([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            # Extract semantic version from tag if it contains one
-            EXTRACTED_TAG_VERSION="${BASH_REMATCH[1]}"
-            HELM_DEPLOY_TAG="$EXTRACTED_TAG_VERSION"
-            echo "Extracted semantic version $EXTRACTED_TAG_VERSION from tag $RELEASE_TAG_NAME"
-          else
-            # Keep using the processed version
-            echo "Using processed version for Helm deployment: $HELM_DEPLOY_TAG"
-          fi
+        # --- 4. Generate Final Tag Name ---
+        log_info "Generating final tag name..."
+        if [[ "$NORMALIZED_ENV" == "stg" ]]; then
+          # Staging tag: vstg-X.Y.Z-short_hash
+          FINAL_TAG_NAME="vstg-${CLEAN_SEMANTIC_VERSION}-${SHORT_HASH}"
+          log_success "Generated staging tag name: $FINAL_TAG_NAME"
+        else
+          # Production tag: vX.Y.Z
+          FINAL_TAG_NAME="v${CLEAN_SEMANTIC_VERSION}"
+          log_success "Generated production tag name: $FINAL_TAG_NAME"
         fi
 
-        echo "deploy_tag=$HELM_DEPLOY_TAG" >> $GITHUB_OUTPUT
+        # --- 5. Set Outputs ---
+        log_info "Setting action outputs..."
+        echo "helm_chart_version=${INPUT_HELM_CHART_VERSION}" >> "$GITHUB_OUTPUT"
+        echo "tag_name=${FINAL_TAG_NAME}" >> "$GITHUB_OUTPUT"
+        echo "git_hash=${SHORT_HASH}" >> "$GITHUB_OUTPUT"
+
+        echo "\n Outputs Set:"
+        echo "  Helm Chart Version (output.version): ${INPUT_HELM_CHART_VERSION}"
+        echo "  Tag Name (output.tag_name): ${FINAL_TAG_NAME}"
+        echo "  Git Hash (output.git_hash): ${SHORT_HASH}"
