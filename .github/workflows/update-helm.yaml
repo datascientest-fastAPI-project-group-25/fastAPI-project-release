@@ -104,7 +104,6 @@ jobs:
               echo "::warning::Environment input is empty. Defaulting to 'production'."
               ENV="production"
             fi
-
             # Normalize environment
             if [[ "$ENV" == "production" ]]; then
               ENV="prod"
