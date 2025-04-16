@@ -95,11 +95,18 @@ runs:
         if [[ "$NORMALIZED_ENV" == "stg" ]]; then
           log_info "Extracting Git hash from Payload Version '$INPUT_PAYLOAD_VERSION' for staging..."
           if [[ "$INPUT_PAYLOAD_VERSION" =~ $STG_HASH_REGEX ]]; then
+            # Standard format: stg-<hash>
             LONG_HASH="${BASH_REMATCH[1]}"
             SHORT_HASH="${LONG_HASH:0:7}"
             log_success "Extracted short Git hash: $SHORT_HASH"
+          elif [[ "$INPUT_PAYLOAD_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-stg)?$ ]]; then
+            # Handle the case where we get a semantic version instead of stg-<hash>
+            # This happens when the workflow is triggered manually
+            # Generate a random hash to use as a placeholder
+            SHORT_HASH=$(date +%s | md5sum | head -c 7)
+            log_info "No hash found in payload version. Using generated hash: $SHORT_HASH"
           else
-            log_error "Invalid Payload Version format for staging: '$INPUT_PAYLOAD_VERSION'. Expected 'stg-<hash>'."
+            log_error "Invalid Payload Version format for staging: '$INPUT_PAYLOAD_VERSION'. Expected 'stg-<hash>' or 'X.Y.Z[-stg]'."
           fi
         else
            SHORT_HASH="" # Ensure hash is empty for prod
