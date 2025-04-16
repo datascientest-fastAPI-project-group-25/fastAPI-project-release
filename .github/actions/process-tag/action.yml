@@ -52,44 +52,57 @@ runs:
         # Validate and fix semantic version
         SEMVER_REGEX='^[0-9]+\.[0-9]+\.[0-9]+$'
 
+        echo "\n📦 Validating semantic version"
+        echo "- Input semantic version: $INPUT_SEMANTIC_VERSION"
+        echo "- Raw version: $INPUT_RAW_VERSION"
+        echo "- Environment: $DEPLOY_ENVIRONMENT"
+
         # First check if semantic_version is already valid
         if [[ "$INPUT_SEMANTIC_VERSION" =~ $SEMVER_REGEX ]]; then
-          echo "Semantic version is already valid: $INPUT_SEMANTIC_VERSION"
+          echo "✅ Semantic version is already valid: $INPUT_SEMANTIC_VERSION"
         else
-          echo "Semantic version '$INPUT_SEMANTIC_VERSION' is not valid or empty"
+          echo "⚠️ Semantic version '$INPUT_SEMANTIC_VERSION' is not valid or empty"
 
           # Check if semantic_version starts with stg- (common pattern in our workflow)
           if [[ "$INPUT_SEMANTIC_VERSION" == stg-* ]]; then
-            echo "Semantic version starts with stg- prefix, extracting proper version"
+            echo "🔍 Semantic version starts with stg- prefix, extracting proper version"
             # Try to extract a semantic version from it
             if [[ "$INPUT_SEMANTIC_VERSION" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
               INPUT_SEMANTIC_VERSION="${BASH_REMATCH[1]}"
-              echo "Extracted semantic version $INPUT_SEMANTIC_VERSION from stg- prefixed version"
+              echo "✅ Extracted semantic version $INPUT_SEMANTIC_VERSION from stg- prefixed version"
             else
-              # If no semantic version found, use default
-              INPUT_SEMANTIC_VERSION="0.1.0"
-              echo "No semantic version found in stg- prefixed version, using default $INPUT_SEMANTIC_VERSION"
+              echo "::error::Could not extract a valid semantic version from stg- prefixed version: '$INPUT_SEMANTIC_VERSION'"
+              echo "::error::Expected format: stg-X.Y.Z or stg-hash where X, Y, Z are integers"
+              exit 1
             fi
           # Look for X.Y.Z pattern in raw_version
           elif [[ "$INPUT_RAW_VERSION" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
             INPUT_SEMANTIC_VERSION="${BASH_REMATCH[1]}"
-            echo "Extracted semantic version $INPUT_SEMANTIC_VERSION from raw_version"
-          # If no semantic version is found, check if this is a staging build
+            echo "✅ Extracted semantic version $INPUT_SEMANTIC_VERSION from raw_version"
+          # If no semantic version is found, provide a clear error message
           elif [[ "$DEPLOY_ENVIRONMENT" == "stg" || "$DEPLOY_ENVIRONMENT" == "staging" ]]; then
-            # For staging builds, we'll use a default semantic version
-            INPUT_SEMANTIC_VERSION="0.1.0"
-            echo "Using default semantic version $INPUT_SEMANTIC_VERSION for staging build"
+            echo "::error::No valid semantic version found for staging build."
+            echo "::error::Received semantic_version: '$INPUT_SEMANTIC_VERSION'"
+            echo "::error::Received raw_version: '$INPUT_RAW_VERSION'"
+            echo "::error::Please ensure a valid semantic version is provided in the payload."
+            exit 1
           else
-            # Last resort for production: use a default version
-            INPUT_SEMANTIC_VERSION="0.1.0"
-            echo "Using default semantic version $INPUT_SEMANTIC_VERSION as last resort"
+            # For production, this is a critical error
+            echo "::error::No valid semantic version found for production release."
+            echo "::error::Received semantic_version: '$INPUT_SEMANTIC_VERSION'"
+            echo "::error::Received raw_version: '$INPUT_RAW_VERSION'"
+            echo "::error::Production releases require a valid semantic version (e.g., 1.2.3)."
+            exit 1
           fi
         fi
 
         # Final check to ensure we have a valid semantic version
         if [[ ! "$INPUT_SEMANTIC_VERSION" =~ $SEMVER_REGEX ]]; then
-          echo "::warning::Still no valid semantic version after processing, forcing to 0.1.0"
-          INPUT_SEMANTIC_VERSION="0.1.0"
+          echo "::error::Failed to obtain a valid semantic version after processing."
+          echo "::error::Received semantic_version: '$INPUT_SEMANTIC_VERSION'"
+          echo "::error::Received raw_version: '$INPUT_RAW_VERSION'"
+          echo "::error::Please ensure a valid semantic version is provided in the payload."
+          exit 1
         fi
 
         # Use only first 7 characters of git hash for output to avoid issues with long hashes
@@ -157,18 +170,20 @@ runs:
             fi
           fi
         elif [[ "$NORMALIZED_ENV" == "stg" ]]; then
-          echo "Processing staging environment..."
+          echo "📦 Processing staging environment..."
           # For staging, use the semantic version with -stg suffix if available
           if [[ "$INPUT_SEMANTIC_VERSION" =~ $SEMVER_PATTERN ]]; then
-            echo "Using semantic_version from payload with -stg suffix: $INPUT_SEMANTIC_VERSION-stg"
+            echo "✅ Using semantic_version from payload with -stg suffix: $INPUT_SEMANTIC_VERSION-stg"
             PROCESSED_VERSION="$INPUT_SEMANTIC_VERSION-stg"
             # Store the clean semantic version for later use in tag generation
             echo "semver_clean=$INPUT_SEMANTIC_VERSION" >> $GITHUB_OUTPUT
           else
-            # Fallback to a default version if no valid semver is provided
-            echo "::warning::No valid semantic version found in payload, using default 0.1.0-stg"
-            PROCESSED_VERSION="0.1.0-stg"
-            echo "semver_clean=0.1.0" >> $GITHUB_OUTPUT
+            # This should never happen due to our validation above, but just in case
+            echo "::error::No valid semantic version found for staging environment."
+            echo "::error::Received semantic_version: '$INPUT_SEMANTIC_VERSION'"
+            echo "::error::Received raw_version: '$INPUT_RAW_VERSION'"
+            echo "::error::Please ensure a valid semantic version is provided in the payload."
+            exit 1
           fi
         else
           echo "::error::Unknown environment: '$DEPLOY_ENVIRONMENT' (normalized to '$NORMALIZED_ENV')"
