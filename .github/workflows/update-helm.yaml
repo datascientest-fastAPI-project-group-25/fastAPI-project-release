@@ -77,11 +77,15 @@ jobs:
               if [[ "$RAW_TAG" =~ vstg-([0-9]+\.[0-9]+\.[0-9]+)-([a-f0-9]+) ]]; then
                 SEMANTIC_VERSION="${BASH_REMATCH[1]}-stg"
                 RAW_VERSION="stg-${BASH_REMATCH[2]}"
+                GIT_HASH="${BASH_REMATCH[2]}"
+                echo "git_hash=$GIT_HASH" >> $GITHUB_ENV
               else
                 echo "::warning::Could not parse semantic version from tag $RAW_TAG"
                 # Fallback to using the tag as is
                 SEMANTIC_VERSION=""
                 RAW_VERSION="$RAW_TAG"
+                GIT_HASH=""
+                echo "git_hash=" >> $GITHUB_ENV
               fi
             fi
 
@@ -142,10 +146,22 @@ jobs:
               # This is a staging tag with semantic version
               ENV="stg"
               echo "Detected vstg- prefix, setting environment to staging"
+              # Try to extract hash from vstg tag
+              if [[ "$RAW_VERSION" =~ vstg-([0-9]+\.[0-9]+\.[0-9]+)-([a-f0-9]+) ]]; then
+                GIT_HASH="${BASH_REMATCH[2]}"
+                echo "git_hash=$GIT_HASH" >> $GITHUB_ENV
+                echo "Extracted git hash from vstg tag: $GIT_HASH"
+              fi
             elif [[ "$RAW_VERSION" == stg-* ]]; then
               # This is a regular staging tag
               ENV="stg"
               echo "Detected stg- prefix, setting environment to staging"
+              # Try to extract hash from stg tag
+              if [[ "$RAW_VERSION" =~ stg-([a-f0-9]+) ]]; then
+                GIT_HASH="${BASH_REMATCH[1]}"
+                echo "git_hash=$GIT_HASH" >> $GITHUB_ENV
+                echo "Extracted git hash from stg tag: $GIT_HASH"
+              fi
             elif [[ "$RAW_VERSION" == v* ]]; then
               # This is a production tag
               ENV="prod"
@@ -175,6 +191,7 @@ jobs:
           echo "Using tag: $RAW_VERSION"
           echo "Using environment: $ENV"
           echo "Using semantic version: $SEMANTIC_VERSION"
+          echo "Using git hash: ${GIT_HASH:-${{ github.event.client_payload.sha || 'none' }}}"
           # End of the if statement for event type check
           fi
 
@@ -185,6 +202,7 @@ jobs:
           raw_version: ${{ steps.vars.outputs.raw_version }}
           environment: ${{ steps.vars.outputs.env }}
           semantic_version: ${{ steps.vars.outputs.semantic_version }}
+          sha: ${{ github.event.client_payload.sha || env.git_hash }}
 
 
 
@@ -202,9 +220,9 @@ jobs:
 
           # Normalize environment for file paths
           if [[ "${{ steps.vars.outputs.env }}" == "prod" ]]; then
-            ENV_DIR="production"
+            ENV_DIR="values-prod"
           elif [[ "${{ steps.vars.outputs.env }}" == "stg" ]]; then
-            ENV_DIR="staging"
+            ENV_DIR="values-stg"
           else
             echo "::error::Unsupported environment: ${{ steps.vars.outputs.env }}"
             exit 1
@@ -255,6 +273,21 @@ jobs:
 
           echo "Updating frontend tag to $DEPLOY_TAG in $VALUES_FILE"
           yq e -i ".frontend.tag = \"$DEPLOY_TAG\"" "$VALUES_FILE"
+
+          # Update Chart.yaml version for production
+          if [[ "${{ steps.vars.outputs.env }}" == "prod" ]]; then
+            echo "Updating Chart.yaml version for production release"
+            CLEAN_VERSION="${{ steps.vars.outputs.semantic_version }}"
+
+            # Ensure we have a clean semantic version (X.Y.Z)
+            if [[ "$CLEAN_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Updating charts/fastapi/Chart.yaml version to $CLEAN_VERSION"
+              yq e -i ".version = \"$CLEAN_VERSION\"" "charts/fastapi/Chart.yaml"
+              yq e -i ".appVersion = \"$CLEAN_VERSION\"" "charts/fastapi/Chart.yaml"
+            else
+              echo "::warning::Not updating Chart.yaml version as semantic version '$CLEAN_VERSION' is not in X.Y.Z format"
+            fi
+          fi
 
           echo "::endgroup::"
 
