@@ -154,8 +154,8 @@ jobs:
           yq e '.frontend.tag = "${{ steps.parse.outputs.version }}-stg"' -i config/helm/dev.yaml
 
           # For staging environment
-          yq e '.backend.tag = "${{ steps.parse.outputs.version }}-stg"' -i config/helm/values-stg.yaml
-          yq e '.frontend.tag = "${{ steps.parse.outputs.version }}-stg"' -i config/helm/values-stg.yaml
+          yq e '.backend.tag = "${{ steps.parse.outputs.raw_version }}"' -i config/helm/values-stg.yaml
+          yq e '.frontend.tag = "${{ steps.parse.outputs.raw_version }}"' -i config/helm/values-stg.yaml
 
           # For production environment
           yq e '.backend.tag = "${{ steps.parse.outputs.version }}"' -i config/helm/values-prod.yaml

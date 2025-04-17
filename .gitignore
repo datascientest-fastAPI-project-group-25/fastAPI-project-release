@@ -11,3 +11,4 @@
 node_modules
 get_helm.sh
 rm
+payload.json
