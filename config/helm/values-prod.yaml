@@ -1,0 +1,143 @@
+# Values for production environment
+app:
+  name: fastapi-app
+  namespace: fastapi-helm-prod
+
+# Backend configuration
+backend:
+  name: backend
+  image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend
+  tag: production-latest  # This will be updated by the CI pipeline
+  replicas: 2  # Higher replica count for production
+  port: 8000
+  service:
+    name: backend-service
+    port: 8000
+    type: ClusterIP
+
+# Frontend configuration
+frontend:
+  name: frontend
+  image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend
+  tag: production-latest  # This will be updated by the CI pipeline
+  replicas: 2  # Higher replica count for production
+  port: 80
+  service:
+    name: frontend-service
+    port: 80
+    type: ClusterIP
+
+# Database configuration
+database:
+  name: postgres
+  image: postgres
+  tag: 12
+  storage:
+    size: 10Gi  # Larger storage for production
+  credentials:
+    secretRef:
+      name: postgres-credentials  # Reference to external secret
+  service:
+    name: postgres
+    port: 5432
+
+# Ingress configuration
+ingress:
+  enabled: true
+  hostTemplate: "dashboard.${DOMAIN}"  # Will be interpolated from environment variables
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+
+# ConfigMap values
+configMap:
+  databaseUrl: "${DATABASE_URL}"  # Will be set from external secret
+  allowedOrigins: "https://dashboard.${DOMAIN}"  # Will be interpolated from environment variables
+  corsSettings: true
+  debugMode: false  # Disable debug mode in production
+  secretKeyRef:
+    name: app-secrets
+    key: secretKey  # Reference to external secret
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1024Mi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+securityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+podSecurityContext:
+  runAsNonRoot: true
+
+# Production-specific settings
+livenessProbe:
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+
+readinessProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+
+# External Secrets configuration
+externalSecrets:
+  enabled: true
+  secretStores:
+    - name: aws-secrets
+      provider: aws-secrets-manager
+      region: ${AWS_REGION}
+  secrets:
+    - name: postgres-credentials
+      secretStore: aws-secrets
+      data:
+        - key: username
+          remoteRef:
+            key: production/postgres/credentials
+            property: username
+        - key: password
+          remoteRef:
+            key: production/postgres/credentials
+            property: password
+        - key: database
+          remoteRef:
+            key: production/postgres/credentials
+            property: database
+    - name: app-secrets
+      secretStore: aws-secrets
+      data:
+        - key: secretKey
+          remoteRef:
+            key: production/app/secrets
+            property: secretKey
+
+# Network policies for production
+networkPolicies:
+  enabled: true
+  ingressRules:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: ingress-controller
+  egressRules:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres

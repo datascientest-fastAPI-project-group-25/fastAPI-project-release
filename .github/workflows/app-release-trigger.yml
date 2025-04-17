@@ -31,8 +31,48 @@ jobs:
           echo "environment: '${{ github.event.client_payload.environment }}'"
           echo "semantic_version: '${{ github.event.client_payload.semantic_version }}'"
           echo "clean_semver: '${{ github.event.client_payload.clean_semver }}'"
+          echo "sha: '${{ github.event.client_payload.sha }}'"
           echo "backend_image: '${{ github.event.client_payload.backend_image }}'"
           echo "frontend_image: '${{ github.event.client_payload.frontend_image }}'"
+
+      - name: Validate payload
+        run: |
+          # Validate environment
+          ENV="${{ github.event.client_payload.environment }}"
+          if [[ -z "$ENV" ]]; then
+            echo "::error::Environment is empty in payload"
+            exit 1
+          fi
+
+          if [[ "$ENV" != "stg" && "$ENV" != "prod" ]]; then
+            echo "::error::Invalid environment: '$ENV'. Must be 'stg' or 'prod'."
+            exit 1
+          fi
+
+          # Validate version based on environment
+          VERSION="${{ github.event.client_payload.version }}"
+          if [[ -z "$VERSION" ]]; then
+            echo "::error::Version is empty in payload"
+            exit 1
+          fi
+
+          # For prod, expect clean SemVer (X.Y.Z)
+          if [[ "$ENV" == "prod" ]]; then
+            if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Invalid version format for prod: '$VERSION'. Expected X.Y.Z format."
+              exit 1
+            fi
+          fi
+
+          # For stg, allow SemVer with suffix or stg-<hash>
+          if [[ "$ENV" == "stg" ]]; then
+            if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-stg)?$ ]] && ! [[ "$VERSION" =~ ^stg-[a-f0-9]+$ ]]; then
+              echo "::error::Invalid version format for stg: '$VERSION'. Expected X.Y.Z[-stg] or stg-<hash> format."
+              exit 1
+            fi
+          fi
+
+          echo "Payload validation successful"
 
       - name: Process tag using local action
         id: process-tag
@@ -42,6 +82,7 @@ jobs:
           environment: ${{ github.event.client_payload.environment }}
           semantic_version: ${{ github.event.client_payload.semantic_version }}
           clean_semver: ${{ github.event.client_payload.clean_semver }}
+          sha: ${{ github.event.client_payload.sha }}
 
       - name: Set outputs for backward compatibility
         id: parse
@@ -113,12 +154,19 @@ jobs:
           yq e '.frontend.tag = "${{ steps.parse.outputs.version }}-stg"' -i config/helm/dev.yaml
 
           # For staging environment
-          yq e '.backend.tag = "${{ steps.parse.outputs.version }}-stg"' -i config/helm/staging.yaml
-          yq e '.frontend.tag = "${{ steps.parse.outputs.version }}-stg"' -i config/helm/staging.yaml
+          yq e '.backend.tag = "${{ steps.parse.outputs.version }}-stg"' -i config/helm/values-stg.yaml
+          yq e '.frontend.tag = "${{ steps.parse.outputs.version }}-stg"' -i config/helm/values-stg.yaml
 
           # For production environment
-          yq e '.backend.tag = "${{ steps.parse.outputs.version }}"' -i config/helm/production.yaml
-          yq e '.frontend.tag = "${{ steps.parse.outputs.version }}"' -i config/helm/production.yaml
+          yq e '.backend.tag = "${{ steps.parse.outputs.version }}"' -i config/helm/values-prod.yaml
+          yq e '.frontend.tag = "${{ steps.parse.outputs.version }}"' -i config/helm/values-prod.yaml
+
+          # Update Chart.yaml version for production
+          if [[ "${{ steps.parse.outputs.environment }}" == "prod" ]]; then
+            echo "Updating Chart.yaml version for production release"
+            yq e '.version = "${{ steps.parse.outputs.version }}"' -i charts/fastapi/Chart.yaml
+            yq e '.appVersion = "${{ steps.parse.outputs.version }}"' -i charts/fastapi/Chart.yaml
+          fi
 
           # Package dev chart
           helm package charts/fastapi \
