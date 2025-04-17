@@ -195,34 +195,72 @@ jobs:
           # End of the if statement for event type check
           fi
 
+      - name: Debug Environment and Vars before process-tag
+        run: |
+          echo "::group::Debug Values before process-tag"
+          echo "Environment from vars: '${{ steps.vars.outputs.env }}'"
+          echo "Raw version from vars: '${{ steps.vars.outputs.raw_version }}'"
+          echo "Semantic version from vars: '${{ steps.vars.outputs.semantic_version }}'"
+          echo "Commit SHA from payload: '${{ github.event.client_payload.sha }}'"
+          echo "Git Hash from env: '${{ env.git_hash }}'"
+          echo "Final SHA to use: '${{ github.event.client_payload.sha || env.git_hash }}'"
+          echo "::endgroup::"
+
+          if [[ -z "${{ steps.vars.outputs.env }}" ]]; then
+            echo "::error::Environment output from vars step is empty. Cannot proceed."
+            exit 1
+          fi
+          if [[ -z "${{ steps.vars.outputs.raw_version }}" ]]; then
+            echo "::error::Raw Version output from vars step is empty. Cannot proceed."
+            exit 1
+          fi
+          # Semantic version can sometimes be empty for stg-hash tags, but clean_semver should be derived later
+          # SHA is critical
+          if [[ -z "${{ github.event.client_payload.sha || env.git_hash }}" ]]; then
+            echo "::error::Could not determine commit SHA. Cannot proceed."
+            exit 1
+          fi
+
       - name: Process tag using local action
         id: process-tag
         uses: ./.github/actions/process-tag
         with:
           raw_version: ${{ steps.vars.outputs.raw_version }}
           environment: ${{ steps.vars.outputs.env }}
-          semantic_version: ${{ steps.vars.outputs.semantic_version }}
-          sha: ${{ github.event.client_payload.sha || env.git_hash }}
-
-
+          semantic_version: ${{ steps.vars.outputs.semantic_version }} # May be empty for stg-hash
+          sha: ${{ github.event.client_payload.sha || env.git_hash }} # Pass the determined SHA
 
       - name: Update Helm values with new image tag
         id: update_helm
         run: |
           echo "::group::Environment and Tag Information"
-          echo "Raw Version: ${{ steps.vars.outputs.raw_version }}"
-          echo "Semantic Version: ${{ steps.vars.outputs.semantic_version }}"
-          echo "Environment: ${{ steps.vars.outputs.env }}"
-          echo "Processed Version: ${{ steps.process-tag.outputs.version }}"
-          echo "Processed Tag Name: ${{ steps.process-tag.outputs.tag_name }}"
-          echo "Processed Git Hash: ${{ steps.process-tag.outputs.git_hash }}"
+          echo "Raw Version (from vars): ${{ steps.vars.outputs.raw_version }}"
+          echo "Semantic Version (from vars): ${{ steps.vars.outputs.semantic_version }}"
+          echo "Environment (from vars): ${{ steps.vars.outputs.env }}"
+          echo "Processed Helm Chart Version (output.version): ${{ steps.process-tag.outputs.version }}"
+          echo "Processed Tag Name (output.tag_name): ${{ steps.process-tag.outputs.tag_name }}"
+          echo "Processed Git Hash (output.git_hash): ${{ steps.process-tag.outputs.git_hash }}"
           echo "::endgroup::"
 
           # Normalize environment for file paths
           if [[ "${{ steps.vars.outputs.env }}" == "prod" ]]; then
             ENV_DIR="values-prod"
+            # For production, the deploy tag is the clean semantic version
+            # The semantic_version output from vars should be clean X.Y.Z for prod
+            DEPLOY_TAG="${{ steps.vars.outputs.semantic_version }}"
+            if [[ ! "$DEPLOY_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+               echo "::error::Invalid semantic version '$DEPLOY_TAG' determined for production deploy tag."
+               exit 1
+            fi
           elif [[ "${{ steps.vars.outputs.env }}" == "stg" ]]; then
             ENV_DIR="values-stg"
+            # For staging, the deploy tag is stg-<hash>
+            # The raw_version output from vars should be stg-<hash> for staging
+            DEPLOY_TAG="${{ steps.vars.outputs.raw_version }}"
+            if [[ ! "$DEPLOY_TAG" =~ ^stg-[a-f0-9]+$ ]]; then
+               echo "::error::Invalid raw version '$DEPLOY_TAG' determined for staging deploy tag. Expected stg-<hash>."
+               exit 1
+            fi
           else
             echo "::error::Unsupported environment: ${{ steps.vars.outputs.env }}"
             exit 1
@@ -236,7 +274,6 @@ jobs:
             exit 1
           fi
           echo "✅ Values file exists: $VALUES_FILE"
-          echo "::endgroup::"
 
           echo "::group::Current Tag Values"
           CURRENT_BACKEND_TAG=$(yq e '.backend.tag' "$VALUES_FILE" || echo "ERROR")
@@ -252,22 +289,11 @@ jobs:
           echo "::endgroup::"
 
           echo "::group::Updating Image Tags"
-          # Use the correct output variable from process-tag action
-          # For staging, we want to use the raw version (stg-hash format)
-          # For production, we want to use the semantic version
-          if [[ "${{ steps.vars.outputs.env }}" == "stg" ]]; then
-            # For staging, use the raw version (stg-hash)
-            DEPLOY_TAG="${{ steps.vars.outputs.raw_version }}"
-          else
-            # For production, use the semantic version
-            DEPLOY_TAG="${{ steps.vars.outputs.semantic_version }}"
-          fi
-          ENV="${{ steps.vars.outputs.env }}"
+          ENV="${{ steps.vars.outputs.env }}" # Re-confirm environment
 
-          # Pass the FILE_ENV to the Makefile
-          echo "Using deploy tag: $DEPLOY_TAG for environment: $ENV (file: $FILE_ENV)"
+          echo "Using deploy tag: $DEPLOY_TAG for environment: $ENV"
 
-          # Update the values file directly using yq instead of using the Makefile
+          # Update the values file directly using yq
           echo "Updating backend tag to $DEPLOY_TAG in $VALUES_FILE"
           yq e -i ".backend.tag = \"$DEPLOY_TAG\"" "$VALUES_FILE"
 
