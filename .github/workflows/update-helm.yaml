@@ -266,46 +266,56 @@ jobs:
           DEFAULT_BRANCH="main"
           echo "Default branch: $DEFAULT_BRANCH"
 
-          echo "::group::Branch Creation"
-          TIMESTAMP=$(date +%Y%m%d%H%M%S)
-          # Use deploy_tag for branch name safety
-          TAG_SAFE=$(echo "$DEPLOY_TAG" | sed 's/[^a-zA-Z0-9]/-/g')
-          BRANCH_NAME="helm-update-${TAG_SAFE}-${TIMESTAMP}"
-          echo "Creating new branch: $BRANCH_NAME"
-          git checkout -b "$BRANCH_NAME"
-          echo "::endgroup::"
-
-          echo "::group::Git Status and Changes"
+          echo "::group::Git Status and Staging"
           git status
           # Add specific files that might have changed
+          # Use 'git add -f' if files are potentially gitignored but should be committed
           git add config/helm/values-*.yaml charts/fastapi/Chart.yaml || echo "No files to add, continuing..."
+          git status # Check status after add
 
-          # Check if there are staged changes before committing
+          # Check if there are staged changes before creating branch and committing
           if ! git diff --staged --quiet; then
+            echo "Staged changes detected, proceeding with branch creation and commit."
+
+            echo "::group::Branch Creation"
+            TIMESTAMP=$(date +%Y%m%d%H%M%S)
+            TAG_SAFE=$(echo "$DEPLOY_TAG" | sed 's/[^a-zA-Z0-9]/-/g')
+            BRANCH_NAME="helm-update-${TAG_SAFE}-${TIMESTAMP}"
+            echo "Creating and switching to new branch: $BRANCH_NAME"
+            # Create branch from current state (which has the staged changes)
+            git checkout -b "$BRANCH_NAME"
+            echo "::endgroup::"
+
+            echo "::group::Committing Changes"
             echo "Staged changes detected, proceeding with commit."
             echo "Generating commit message..."
             # Generate commit message using script and commit using -F - (read from stdin)
-            if ./scripts/generate_commit_message.sh | git commit -F -; then
-              echo "✅ Changes committed successfully"
+            # Commit should work now as changes are staged and we are on the new branch
+            if ./scripts/generate_commit_message.sh | git commit --allow-empty -F -; then # Use --allow-empty just in case, though should not be needed
+              echo "✅ Changes committed successfully to branch $BRANCH_NAME"
+              echo "::endgroup::" # End Committing Changes group
+
+              echo "::group::Pushing Branch"
               if git push origin "$BRANCH_NAME"; then
-                echo "✅ Changes pushed successfully"
+                echo "✅ Branch $BRANCH_NAME pushed successfully"
                 echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
                 echo "default_branch=$DEFAULT_BRANCH" >> $GITHUB_OUTPUT
                 echo "has_changes=true" >> $GITHUB_OUTPUT
               else
-                echo "::error::Failed to push changes to remote"
+                echo "::error::Failed to push branch $BRANCH_NAME to remote"
                 exit 1
               fi
+              echo "::endgroup::" # End Pushing Branch group
             else
               echo "::error::git commit command failed"
               exit 1
             fi
           else
             # This case should ideally not be reached due to the 'updated=true' check
-            echo "No staged changes detected. Skipping commit."
+            echo "No staged changes detected after 'git add'. Skipping commit and PR creation."
             echo "has_changes=false" >> $GITHUB_OUTPUT
           fi
-          echo "::endgroup::" # End Git Status and Changes group
+          # End Git Status and Staging group (moved from original position)
 
       - name: Prepare PR Body
         if: steps.commit.outputs.has_changes == 'true'
