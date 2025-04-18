@@ -185,10 +185,10 @@ jobs:
           echo "::group::Updating Image Tags and Chart Version"
           echo "Updating values file: $VALUES_FILE"
           echo "Updating backend tag: $CURRENT_BACKEND_TAG -> $DEPLOY_TAG"
-          sed -i "s/tag: stg-latest/tag: $DEPLOY_TAG/" "$VALUES_FILE"
-          
+          sed -i "s/tag: $CURRENT_BACKEND_TAG/tag: $DEPLOY_TAG/" "$VALUES_FILE"
+
           echo "Updating frontend tag: $CURRENT_FRONTEND_TAG -> $DEPLOY_TAG"
-          sed -i "s/tag: stg-latest/tag: $DEPLOY_TAG/" "$VALUES_FILE"
+          sed -i "s/tag: $CURRENT_FRONTEND_TAG/tag: $DEPLOY_TAG/" "$VALUES_FILE"
 
           # Update Chart.yaml version for production if needed
           if [[ "$ENV" == "prod" && -n "$CHART_FILE" && -f "$CHART_FILE" ]]; then
