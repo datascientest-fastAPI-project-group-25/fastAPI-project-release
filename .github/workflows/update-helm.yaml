@@ -18,6 +18,9 @@ jobs:
         with:
           token: ${{ secrets.MACHINE_USER_TOKEN }}
           fetch-depth: 0 # Fetch all history for proper branch detection
+          clean: false # Preserve workspace changes
+          persist-credentials: true # Ensure credentials are available for push
+          set-safe-directory: true # Mark the repository directory as safe
 
       - name: Install yq
         run: |
