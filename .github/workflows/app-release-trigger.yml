@@ -14,16 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Helm
-        uses: azure/setup-helm@v3.5
-        with:
-          version: 'v3.12.0'
-
-      - name: Install yq
-        run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
-
       - name: Debug payload
         run: |
           echo "Received payload:"
@@ -99,114 +89,8 @@ jobs:
           echo "Using git hash: ${{ steps.process-tag.outputs.git_hash }}"
           echo "Using deploy tag: ${{ steps.process-tag.outputs.deploy_tag }}"
 
-      - name: Trigger Helm Update
-        env:
-          GH_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
-        run: |
-          ENV="${{ steps.parse.outputs.environment }}"
-          TAG="${{ steps.parse.outputs.version }}"
-
-          # Ensure environment is not empty
-          if [[ -z "$ENV" ]]; then
-            echo "::warning::Environment is empty, detecting from version"
-            if [[ "${{ steps.parse.outputs.raw_version }}" == stg-* || "${{ steps.parse.outputs.raw_version }}" == vstg-* ]]; then
-              ENV="stg"
-              echo "Detected staging environment from version prefix"
-            else
-              ENV="prod"
-              echo "Defaulting to production environment"
-            fi
-          fi
-
-          echo "Triggering Helm update for $ENV environment with tag $TAG"
-
-          echo "Triggering update-helm workflow with tag=$TAG, env=$ENV"
-          gh workflow run update-helm.yaml \
-            --field tag="$TAG" \
-            --field env="$ENV" \
-            --ref main
-
-          echo "✓ Helm update workflow triggered on main branch"
-
-          # Wait briefly to ensure the workflow starts
-          sleep 5
-
-          # Get the run ID of the triggered workflow
-          RUN_ID=$(gh run list --workflow=update-helm.yaml --json databaseId --jq '.[0].databaseId')
-          if [ -n "$RUN_ID" ]; then
-            echo "Update-helm workflow started with run ID: $RUN_ID"
-            echo "Monitor at: https://github.com/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"
-          else
-            echo "::warning::Could not find the triggered workflow run ID"
-          fi
-
-          echo "backend_image=${{ github.event.client_payload.backend_image }}" >> $GITHUB_OUTPUT
-          echo "frontend_image=${{ github.event.client_payload.frontend_image }}" >> $GITHUB_OUTPUT
-
-      - name: Package Helm charts
-        run: |
-          # Create dist directories
-          mkdir -p dist/fastapi-dev dist/fastapi-staging dist/fastapi-prod
-
-          # First, update the values files with the correct image tags
-          # For dev environment
-          yq e '.backend.tag = "${{ steps.parse.outputs.version }}-stg"' -i config/helm/dev.yaml
-          yq e '.frontend.tag = "${{ steps.parse.outputs.version }}-stg"' -i config/helm/dev.yaml
-
-          # For staging environment
-          yq e '.backend.tag = "${{ steps.parse.outputs.raw_version }}"' -i config/helm/values-stg.yaml
-          yq e '.frontend.tag = "${{ steps.parse.outputs.raw_version }}"' -i config/helm/values-stg.yaml
-
-          # For production environment
-          yq e '.backend.tag = "${{ steps.parse.outputs.version }}"' -i config/helm/values-prod.yaml
-          yq e '.frontend.tag = "${{ steps.parse.outputs.version }}"' -i config/helm/values-prod.yaml
-
-          # Update Chart.yaml version for production
-          if [[ "${{ steps.parse.outputs.environment }}" == "prod" ]]; then
-            echo "Updating Chart.yaml version for production release"
-            yq e '.version = "${{ steps.parse.outputs.version }}"' -i charts/fastapi/Chart.yaml
-            yq e '.appVersion = "${{ steps.parse.outputs.version }}"' -i charts/fastapi/Chart.yaml
-          fi
-
-          # Package dev chart
-          helm package charts/fastapi \
-            --version ${{ steps.parse.outputs.version }} \
-            --app-version "${{ steps.parse.outputs.version }}-stg" \
-            -d dist/fastapi-dev
-
-          # Package staging chart
-          helm package charts/fastapi \
-            --version ${{ steps.parse.outputs.version }} \
-            --app-version "${{ steps.parse.outputs.version }}-stg" \
-            -d dist/fastapi-staging
-
-          # Package prod chart
-          helm package charts/fastapi \
-            --version ${{ steps.parse.outputs.version }} \
-            --app-version "${{ steps.parse.outputs.version }}" \
-            -d dist/fastapi-prod
-
-      - name: Check if charts were packaged
-        id: check_charts
-        run: |
-          # Check if any charts were packaged
-          DEV_CHARTS=$(find dist/fastapi-dev -name "*.tgz" 2>/dev/null | wc -l)
-          STAGING_CHARTS=$(find dist/fastapi-staging -name "*.tgz" 2>/dev/null | wc -l)
-          PROD_CHARTS=$(find dist/fastapi-prod -name "*.tgz" 2>/dev/null | wc -l)
-
-          echo "Found $DEV_CHARTS charts in dev, $STAGING_CHARTS in staging, $PROD_CHARTS in prod"
-
-          TOTAL_CHARTS=$((DEV_CHARTS + STAGING_CHARTS + PROD_CHARTS))
-          if [ "$TOTAL_CHARTS" -eq 0 ]; then
-            echo "No charts were packaged. This might indicate an issue with the Helm package commands."
-            echo "charts_exist=false" >> $GITHUB_OUTPUT
-          else
-            echo "Found $TOTAL_CHARTS charts in total."
-            echo "charts_exist=true" >> $GITHUB_OUTPUT
-          fi
-
       - name: Handle Git Tag
-        if: steps.check_charts.outputs.charts_exist == 'true'
+        # This step now runs unconditionally after tag processing
         id: create_tag
         run: |
           git config --local user.email "action@github.com"
@@ -248,7 +132,8 @@ jobs:
           fi
 
       - name: Create GitHub Release
-        if: steps.check_charts.outputs.charts_exist == 'true' && steps.create_tag.outputs.tag_verified == 'true'
+        # Run if the tag was successfully created or already existed
+        if: steps.create_tag.outputs.tag_verified == 'true'
         run: |
           # Use gh CLI to create a release
           echo "Creating GitHub release for tag ${{ steps.parse.outputs.tag_name }}..."
@@ -267,22 +152,17 @@ jobs:
 
           # Create release notes file
           cat > release_notes.md << EOF
-          ## Environment-specific Helm Charts
+          ## Release Triggered
 
-          This release includes Helm charts for the following environments:
-          - Development (using staging images)
-          - Staging
-          - Production
+          This release was triggered for the **${{ steps.parse.outputs.environment }}** environment.
 
           ### Version Information
-          - Semantic Version for Helm: ${{ steps.parse.outputs.version }}
+          - Release Tag: ${{ steps.parse.outputs.tag_name }}
           - Environment: ${{ steps.parse.outputs.environment }}
-          - Original Version: ${{ steps.parse.outputs.raw_version }}
-          - Git Hash: ${{ steps.parse.outputs.git_hash }}
+          - Original Version Sent: ${{ steps.parse.outputs.raw_version }}
+          - Associated Git Hash: ${{ steps.parse.outputs.git_hash }}
 
-          ### Image Tags
-          - Dev/Staging: ${{ steps.parse.outputs.version }}-stg
-          - Production: ${{ steps.parse.outputs.version }}
+          This release event will trigger the `update-helm.yaml` workflow to update the corresponding Helm values.
           EOF
 
           # Check if release already exists
@@ -294,21 +174,7 @@ jobs:
               --notes-file release_notes.md \
               ${{ github.event.client_payload.environment == 'stg' && '--prerelease' || '' }}
 
-            # Upload assets if they don't already exist
-            for chart in dist/fastapi-dev/*.tgz dist/fastapi-staging/*.tgz dist/fastapi-prod/*.tgz; do
-              filename=$(basename "$chart")
-              if ! gh release view "${{ steps.parse.outputs.tag_name }}" | grep -q "$filename"; then
-                echo "Uploading $filename to release..."
-                if gh release upload "${{ steps.parse.outputs.tag_name }}" "$chart" --clobber; then
-                  echo "Successfully uploaded $filename"
-                else
-                  echo "::warning::Failed to upload $filename, but continuing with other assets"
-                fi
-              else
-                echo "$filename already exists in release, skipping upload"
-              fi
-            done
-
+            # No assets to upload in this workflow anymore
             echo "✅ GitHub release updated successfully!"
           else
             # Create new release without assets first
@@ -318,19 +184,7 @@ jobs:
               --generate-notes \
               ${{ github.event.client_payload.environment == 'stg' && '--prerelease' || '' }}; then
 
-              echo "Release created successfully, now uploading assets..."
-
-              # Upload assets separately
-              for chart in dist/fastapi-dev/*.tgz dist/fastapi-staging/*.tgz dist/fastapi-prod/*.tgz; do
-                filename=$(basename "$chart")
-                echo "Uploading $filename to release..."
-                if gh release upload "${{ steps.parse.outputs.tag_name }}" "$chart" --clobber; then
-                  echo "Successfully uploaded $filename"
-                else
-                  echo "::warning::Failed to upload $filename, but continuing with other assets"
-                fi
-              done
-
+              # No assets to upload in this workflow anymore
               echo "✅ GitHub release created successfully!"
             else
               echo "::warning::Failed to create release, but continuing workflow"
@@ -339,10 +193,11 @@ jobs:
 
 
       - name: Debug Release Creation
-        if: steps.check_charts.outputs.charts_exist == 'true'
+        # Run if the tag was successfully created or already existed
+        if: steps.create_tag.outputs.tag_verified == 'true'
         run: |
-          echo "A new GitHub release was created with tag ${{ steps.parse.outputs.tag_name }}"
-          echo "Using semantic version ${{ steps.parse.outputs.version }} for Helm charts"
-          echo "This should trigger the update-helm.yaml workflow via the release: [published] event"
-          echo "If update-helm.yaml doesn't run, check if the release was actually published (not a draft)"
-          echo "Staging releases are marked as pre-releases: ${{ github.event.client_payload.environment == 'stg' }}"
+          echo "A GitHub release was created/updated with tag ${{ steps.parse.outputs.tag_name }}"
+          echo "Environment: ${{ steps.parse.outputs.environment }}"
+          echo "This should trigger the update-helm.yaml workflow via the release: [published] event."
+          echo "If update-helm.yaml doesn't run, check if the release was actually published (not a draft)."
+          echo "Staging releases are marked as pre-releases: ${{ steps.parse.outputs.environment == 'stg' }}"

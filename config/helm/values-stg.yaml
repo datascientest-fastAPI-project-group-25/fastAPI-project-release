@@ -1,13 +1,13 @@
-# Values for staging environment
+# Values for stg environment
 app:
   name: fastapi-app
-  namespace: fastapi-helm-staging
+  namespace: fastapi-helm-stg
 
 # Backend configuration
 backend:
   name: backend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend
-  tag: staging-latest  # This will be updated by the CI pipeline
+  tag: stg-latest  # This will be updated by the CI pipeline
   replicas: 1
   port: 8000
   service:
@@ -19,7 +19,7 @@ backend:
 frontend:
   name: frontend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend
-  tag: staging-latest  # This will be updated by the CI pipeline
+  tag: stg-latest  # This will be updated by the CI pipeline
   replicas: 1
   port: 80
   service:
@@ -55,7 +55,7 @@ configMap:
   allowedOrigins: https://staging.dashboard.datascientest-group25.com
   corsSettings: true
   debugMode: true
-  secretKey: staging-secret-key  # In production, use a secret manager
+  secretKey: stg-secret-key  # In production, use a secret manager
 
 resources:
   limits:
@@ -71,7 +71,7 @@ autoscaling:
   maxReplicas: 3
   targetCPUUtilizationPercentage: 80
 
-# Staging-specific settings
+# Stg-specific settings
 livenessProbe:
   initialDelaySeconds: 20
   periodSeconds: 10

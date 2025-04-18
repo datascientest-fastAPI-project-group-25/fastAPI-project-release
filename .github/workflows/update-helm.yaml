@@ -1,20 +1,8 @@
 name: Update Helm Image Tag
 
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Docker image tag to deploy'
-        required: true
-        type: string
-      env:
-        description: 'Deployment environment (dev, staging, production)'
-        required: true
-        default: production
-        type: string
   release:
-    types: [published]
-    # Only trigger on published releases to avoid duplicate runs
+    types: [published] # Trigger only when a release is published
 
 jobs:
   update-helm:
@@ -29,323 +17,250 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.MACHINE_USER_TOKEN }}
-          fetch-depth: 0  # Fetch all history for proper branch detection
+          fetch-depth: 0 # Fetch all history for proper branch detection
 
       - name: Install yq
         run: |
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
+      - name: Make scripts executable
+        run: chmod +x ./scripts/generate_commit_message.sh ./scripts/generate_pr_body.sh
+
       - name: Debug Event Information
         run: |
-          echo "Event name: ${{ github.event_name }}"
-          echo "Event action: ${{ github.event.action }}"
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "Release tag: ${{ github.event.release.tag_name }}"
-            echo "Release name: ${{ github.event.release.name }}"
-            echo "Release draft: ${{ github.event.release.draft }}"
-            echo "Release prerelease: ${{ github.event.release.prerelease }}"
-          else
-            echo "Workflow dispatch inputs:"
-            echo "  Tag: ${{ github.event.inputs.tag }}"
-            echo "  Environment: ${{ github.event.inputs.env }}"
-          fi
+          echo "Event name: ${{ github.event_name }}" # Should always be 'release'
+          echo "Event action: ${{ github.event.action }}" # Should always be 'published'
+          echo "Release tag: ${{ github.event.release.tag_name }}"
+          echo "Release name: ${{ github.event.release.name }}"
+          echo "Release draft: ${{ github.event.release.draft }}"
+          echo "Release prerelease: ${{ github.event.release.prerelease }}"
 
-      - name: Determine tag and environment
+      - name: Determine tag and environment from Release
         id: vars
         run: |
-          # Determine tag and environment
-          if [ "${{ github.event_name }}" = "release" ]; then
-            # Check if this is a duplicate run (same release, different event)
-            EVENT_TYPE="${{ github.event.action }}"
-            RAW_TAG="${{ github.event.release.tag_name }}"
+          RAW_TAG="${{ github.event.release.tag_name }}"
+          echo "Processing published release event for tag $RAW_TAG"
 
-            # We're now only handling published events, so no need to skip any events
-            echo "Processing published event for tag $RAW_TAG"
-
-            # For releases, determine environment based on tag format
-            if [[ "$RAW_TAG" == v* && "$RAW_TAG" != vstg-* ]]; then
-              ENV="prod"
-              # Extract semantic version from tag (remove 'v' prefix)
-              SEMANTIC_VERSION="${RAW_TAG#v}"
-              # Use the tag as the raw version (for production, this is the same as the semantic version)
-              RAW_VERSION="$SEMANTIC_VERSION"
-            else
-              ENV="stg"
-              # For vstg tags, extract both the semantic version and git hash
-              # Format is typically vstg-X.Y.Z-hash
-              if [[ "$RAW_TAG" =~ vstg-([0-9]+\.[0-9]+\.[0-9]+)-([a-f0-9]+) ]]; then
-                SEMANTIC_VERSION="${BASH_REMATCH[1]}-stg"
-                RAW_VERSION="stg-${BASH_REMATCH[2]}"
-                GIT_HASH="${BASH_REMATCH[2]}"
-                echo "git_hash=$GIT_HASH" >> $GITHUB_ENV
-              else
-                echo "::warning::Could not parse semantic version from tag $RAW_TAG"
-                # Fallback to using the tag as is
-                SEMANTIC_VERSION=""
-                RAW_VERSION="$RAW_TAG"
-                GIT_HASH=""
-                echo "git_hash=" >> $GITHUB_ENV
-              fi
+          # Determine environment based on tag format and prerelease flag
+          # Production: tag starts with 'v', is NOT a prerelease, and not 'vstg-'
+          # Staging: tag starts with 'vstg-' OR is a prerelease
+          if [[ "$RAW_TAG" == v* && "${{ github.event.release.prerelease }}" == "false" && "$RAW_TAG" != vstg-* ]]; then
+            ENV="prod"
+            # Extract semantic version from tag (remove 'v' prefix)
+            SEMANTIC_VERSION="${RAW_TAG#v}"
+            # Use the semantic version as the deploy tag for prod
+            DEPLOY_TAG="$SEMANTIC_VERSION"
+            # Ensure it's a clean X.Y.Z format
+            if ! [[ "$DEPLOY_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+               echo "::error::Invalid production tag format '$RAW_TAG'. Expected 'vX.Y.Z'."
+               exit 1
             fi
-
-            echo "Triggered by release '$EVENT_TYPE' event for tag $RAW_TAG"
-            echo "Extracted environment: $ENV"
-            echo "Extracted semantic version: $SEMANTIC_VERSION"
-            echo "Extracted raw version: $RAW_VERSION"
+            GIT_HASH="" # Not relevant for prod tag
+          elif [[ "$RAW_TAG" == vstg-* || "${{ github.event.release.prerelease }}" == "true" ]]; then
+            ENV="stg"
+            # For staging, extract the git hash from the tag (format vstg-X.Y.Z-hash)
+            if [[ "$RAW_TAG" =~ vstg-([0-9]+\.[0-9]+\.[0-9]+)-([a-f0-9]+) ]]; then
+              # Extract base semantic version and hash
+              BASE_SEMVER="${BASH_REMATCH[1]}"
+              GIT_HASH="${BASH_REMATCH[2]}"
+              # Construct semantic version with -stg suffix and deploy tag with stg- prefix
+              SEMANTIC_VERSION="${BASE_SEMVER}-stg" # e.g., 1.2.3-stg
+              DEPLOY_TAG="stg-${GIT_HASH}" # Use stg-<hash> as the deploy tag
+              echo "git_hash=$GIT_HASH" >> $GITHUB_ENV
+            else
+              echo "::error::Invalid staging tag format '$RAW_TAG'. Expected 'vstg-X.Y.Z-<hash>'."
+              exit 1
+            fi
           else
-            # For workflow_dispatch, use the inputs directly
-            RAW_VERSION="${{ github.event.inputs.tag }}"
-            ENV="${{ github.event.inputs.env }}"
+            echo "::error::Could not determine environment from tag '$RAW_TAG' and prerelease status (${{ github.event.release.prerelease }})."
+            exit 1
+          fi
 
-            # Validate inputs are not empty
-            if [[ -z "$RAW_VERSION" ]]; then
-              echo "::error::Tag input is empty. This is required."
-              exit 1
-            fi
-
-            if [[ -z "$ENV" ]]; then
-              echo "::warning::Environment input is empty. Defaulting to 'production'."
-              ENV="production"
-            fi
-            # Normalize environment
-            if [[ "$ENV" == "production" ]]; then
-              ENV="prod"
-            elif [[ "$ENV" == "staging" ]]; then
-              ENV="stg"
-            elif [[ "$ENV" != "prod" && "$ENV" != "stg" ]]; then
-              echo "::error::Invalid environment: '$ENV'. Must be one of: 'stg', 'staging', 'prod', 'production'."
-              exit 1
-            fi
-
-            # Derive semantic version from raw version if possible
-            if [[ "$RAW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              # Clean semantic version (e.g., 1.2.3)
-              SEMANTIC_VERSION="$RAW_VERSION"
-              if [[ "$ENV" == "stg" ]]; then
-                SEMANTIC_VERSION="${SEMANTIC_VERSION}-stg"
-              fi
-            elif [[ "$RAW_VERSION" =~ ^stg-([a-f0-9]+)$ ]]; then
-              # Staging hash format
-              SEMANTIC_VERSION=""
-            else
-              # Try to extract semantic version from the raw version
-              if [[ "$RAW_VERSION" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-                SEMANTIC_VERSION="${BASH_REMATCH[1]}"
-                if [[ "$ENV" == "stg" ]]; then
-                  SEMANTIC_VERSION="${SEMANTIC_VERSION}-stg"
-                fi
-              else
-                echo "::warning::Could not extract semantic version from $RAW_VERSION"
-                SEMANTIC_VERSION=""
-              fi
-            fi
-
-            # Override environment based on tag format for consistency
-            if [[ "$RAW_VERSION" == vstg-* ]]; then
-              # This is a staging tag with semantic version
-              ENV="stg"
-              echo "Detected vstg- prefix, setting environment to staging"
-              # Try to extract hash from vstg tag
-              if [[ "$RAW_VERSION" =~ vstg-([0-9]+\.[0-9]+\.[0-9]+)-([a-f0-9]+) ]]; then
-                GIT_HASH="${BASH_REMATCH[2]}"
-                echo "git_hash=$GIT_HASH" >> $GITHUB_ENV
-                echo "Extracted git hash from vstg tag: $GIT_HASH"
-              fi
-            elif [[ "$RAW_VERSION" == stg-* ]]; then
-              # This is a regular staging tag
-              ENV="stg"
-              echo "Detected stg- prefix, setting environment to staging"
-              # Try to extract hash from stg tag
-              if [[ "$RAW_VERSION" =~ stg-([a-f0-9]+) ]]; then
-                GIT_HASH="${BASH_REMATCH[1]}"
-                echo "git_hash=$GIT_HASH" >> $GITHUB_ENV
-                echo "Extracted git hash from stg tag: $GIT_HASH"
-              fi
-            elif [[ "$RAW_VERSION" == v* ]]; then
-              # This is a production tag
-              ENV="prod"
-              echo "Detected v prefix, setting environment to production"
-            fi
-            echo "Triggered by workflow_dispatch with tag=$RAW_VERSION, env=$ENV"
+          echo "Determined environment: $ENV"
+          echo "Determined semantic version: $SEMANTIC_VERSION"
+          echo "Determined deploy tag: $DEPLOY_TAG"
+          echo "Determined git hash: $GIT_HASH"
 
           # Set outputs
-          echo "tag=$RAW_VERSION" >> $GITHUB_OUTPUT
           echo "env=$ENV" >> $GITHUB_OUTPUT
-          echo "raw_version=$RAW_VERSION" >> $GITHUB_OUTPUT
-
-          # Ensure semantic_version is set
-          if [[ -z "$SEMANTIC_VERSION" ]]; then
-            # Try to extract semantic version from RAW_VERSION
-            if [[ "$RAW_VERSION" =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-              SEMANTIC_VERSION="${BASH_REMATCH[1]}"
-              echo "Extracted semantic version from raw_version: $SEMANTIC_VERSION"
-            else
-              echo "::error::Could not determine semantic version from inputs"
-              exit 1
-            fi
-          fi
+          echo "raw_version=$RAW_TAG" >> $GITHUB_OUTPUT # Keep original tag for reference
           echo "semantic_version=$SEMANTIC_VERSION" >> $GITHUB_OUTPUT
+          echo "deploy_tag=$DEPLOY_TAG" >> $GITHUB_OUTPUT
+          echo "git_hash=$GIT_HASH" >> $GITHUB_OUTPUT
 
-          # Print determined values for debugging
-          echo "Using tag: $RAW_VERSION"
-          echo "Using environment: $ENV"
-          echo "Using semantic version: $SEMANTIC_VERSION"
-          echo "Using git hash: ${GIT_HASH:-${{ github.event.client_payload.sha || 'none' }}}"
-          # End of the if statement for event type check
-          fi
-
-      - name: Debug Environment and Vars before process-tag
-        run: |
-          echo "::group::Debug Values before process-tag"
-          echo "Environment from vars: '${{ steps.vars.outputs.env }}'"
-          echo "Raw version from vars: '${{ steps.vars.outputs.raw_version }}'"
-          echo "Semantic version from vars: '${{ steps.vars.outputs.semantic_version }}'"
-          echo "Commit SHA from payload: '${{ github.event.client_payload.sha }}'"
-          echo "Git Hash from env: '${{ env.git_hash }}'"
-          echo "Final SHA to use: '${{ github.event.client_payload.sha || env.git_hash }}'"
-          echo "::endgroup::"
-
-          if [[ -z "${{ steps.vars.outputs.env }}" ]]; then
-            echo "::error::Environment output from vars step is empty. Cannot proceed."
-            exit 1
-          fi
-          if [[ -z "${{ steps.vars.outputs.raw_version }}" ]]; then
-            echo "::error::Raw Version output from vars step is empty. Cannot proceed."
-            exit 1
-          fi
-          # Semantic version can sometimes be empty for stg-hash tags, but clean_semver should be derived later
-          # SHA is critical
-          if [[ -z "${{ github.event.client_payload.sha || env.git_hash }}" ]]; then
-            echo "::error::Could not determine commit SHA. Cannot proceed."
-            exit 1
-          fi
-
-      - name: Process tag using local action
-        id: process-tag
-        uses: ./.github/actions/process-tag
-        with:
-          raw_version: ${{ steps.vars.outputs.raw_version }}
-          environment: ${{ steps.vars.outputs.env }}
-          semantic_version: ${{ steps.vars.outputs.semantic_version }} # May be empty for stg-hash
-          sha: ${{ github.event.client_payload.sha || env.git_hash }} # Pass the determined SHA
-
-      - name: Update Helm values with new image tag
+      - name: Update Helm values with new image tag (Idempotent)
         id: update_helm
+        env: # Pass outputs as environment variables
+          ENV: ${{ steps.vars.outputs.env }}
+          DEPLOY_TAG: ${{ steps.vars.outputs.deploy_tag }}
+          SEMANTIC_VERSION: ${{ steps.vars.outputs.semantic_version }}
         run: |
-          echo "::group::Environment and Tag Information"
-          echo "Raw Version (from vars): ${{ steps.vars.outputs.raw_version }}"
-          echo "Semantic Version (from vars): ${{ steps.vars.outputs.semantic_version }}"
-          echo "Environment (from vars): ${{ steps.vars.outputs.env }}"
-          echo "Processed Helm Chart Version (output.version): ${{ steps.process-tag.outputs.version }}"
-          echo "Processed Tag Name (output.tag_name): ${{ steps.process-tag.outputs.tag_name }}"
-          echo "Processed Git Hash (output.git_hash): ${{ steps.process-tag.outputs.git_hash }}"
+          # Access values from environment variables
+          echo "::group::Environment and Target Tag Information"
+          echo "Environment: $ENV"
+          echo "Target Deploy Tag: $DEPLOY_TAG"
+          echo "Target Semantic Version (for Chart.yaml if prod): $SEMANTIC_VERSION"
           echo "::endgroup::"
 
-          # Normalize environment for file paths
-          if [[ "${{ steps.vars.outputs.env }}" == "prod" ]]; then
-            ENV_DIR="values-prod"
-            # For production, the deploy tag is the clean semantic version
-            # The semantic_version output from vars should be clean X.Y.Z for prod
-            DEPLOY_TAG="${{ steps.vars.outputs.semantic_version }}"
-            if [[ ! "$DEPLOY_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-               echo "::error::Invalid semantic version '$DEPLOY_TAG' determined for production deploy tag."
-               exit 1
-            fi
-          elif [[ "${{ steps.vars.outputs.env }}" == "stg" ]]; then
-            ENV_DIR="values-stg"
-            # For staging, the deploy tag is stg-<hash>
-            # The raw_version output from vars should be stg-<hash> for staging
-            DEPLOY_TAG="${{ steps.vars.outputs.raw_version }}"
-            if [[ ! "$DEPLOY_TAG" =~ ^stg-[a-f0-9]+$ ]]; then
-               echo "::error::Invalid raw version '$DEPLOY_TAG' determined for staging deploy tag. Expected stg-<hash>."
-               exit 1
-            fi
+          # Determine values file path
+          if [[ "$ENV" == "prod" ]]; then
+            VALUES_FILE="config/helm/values-prod.yaml"
+            CHART_FILE="charts/fastapi/Chart.yaml"
+          elif [[ "$ENV" == "stg" ]]; then
+            VALUES_FILE="config/helm/values-stg.yaml"
+            CHART_FILE="" # No Chart.yaml update for staging
           else
-            echo "::error::Unsupported environment: ${{ steps.vars.outputs.env }}"
+            echo "::error::Invalid environment '$ENV' determined."
             exit 1
           fi
 
-          VALUES_FILE="config/helm/$ENV_DIR.yaml"
+          # Check if values file exists
           if [ ! -f "$VALUES_FILE" ]; then
             echo "::error::Values file $VALUES_FILE does not exist"
-            echo "Available files in config/helm/:"
             ls -la config/helm/
             exit 1
           fi
           echo "✅ Values file exists: $VALUES_FILE"
 
-          echo "::group::Current Tag Values"
+          # --- Idempotency Check ---
+          echo "::group::Checking Current Tag Values"
           CURRENT_BACKEND_TAG=$(yq e '.backend.tag' "$VALUES_FILE" || echo "ERROR")
           CURRENT_FRONTEND_TAG=$(yq e '.frontend.tag' "$VALUES_FILE" || echo "ERROR")
 
           if [[ "$CURRENT_BACKEND_TAG" == "ERROR" || "$CURRENT_FRONTEND_TAG" == "ERROR" ]]; then
-            echo "::error::Failed to read current tag values"
+            echo "::error::Failed to read current tag values from $VALUES_FILE"
             exit 1
           fi
-
           echo "Current backend tag: $CURRENT_BACKEND_TAG"
           echo "Current frontend tag: $CURRENT_FRONTEND_TAG"
+
+          # Check Chart.yaml version for prod
+          CURRENT_CHART_VERSION=""
+          CURRENT_APP_VERSION=""
+          if [[ "$ENV" == "prod" && -n "$CHART_FILE" && -f "$CHART_FILE" ]]; then
+             CURRENT_CHART_VERSION=$(yq e '.version' "$CHART_FILE" || echo "ERROR")
+             CURRENT_APP_VERSION=$(yq e '.appVersion' "$CHART_FILE" || echo "ERROR")
+             echo "Current Chart.yaml version: $CURRENT_CHART_VERSION"
+             echo "Current Chart.yaml appVersion: $CURRENT_APP_VERSION"
+             if [[ "$CURRENT_CHART_VERSION" == "ERROR" || "$CURRENT_APP_VERSION" == "ERROR" ]]; then
+               echo "::error::Failed to read current Chart.yaml versions"
+               exit 1
+             fi
+          elif [[ "$ENV" == "prod" ]]; then
+             echo "::warning::Chart.yaml file not found or not specified for prod. Skipping version check."
+          fi
           echo "::endgroup::"
 
-          echo "::group::Updating Image Tags"
-          ENV="${{ steps.vars.outputs.env }}" # Re-confirm environment
+          # Compare current tags/versions with the target deploy tag/semantic version
+          NEEDS_UPDATE="false"
+          if [[ "$CURRENT_BACKEND_TAG" != "$DEPLOY_TAG" || "$CURRENT_FRONTEND_TAG" != "$DEPLOY_TAG" ]]; then
+            NEEDS_UPDATE="true"
+            echo "Values file needs update: Tags mismatch."
+          fi
 
-          echo "Using deploy tag: $DEPLOY_TAG for environment: $ENV"
-
-          # Update the values file directly using yq
-          echo "Updating backend tag to $DEPLOY_TAG in $VALUES_FILE"
-          yq e -i ".backend.tag = \"$DEPLOY_TAG\"" "$VALUES_FILE"
-
-          echo "Updating frontend tag to $DEPLOY_TAG in $VALUES_FILE"
-          yq e -i ".frontend.tag = \"$DEPLOY_TAG\"" "$VALUES_FILE"
-
-          # Update Chart.yaml version for production
-          if [[ "${{ steps.vars.outputs.env }}" == "prod" ]]; then
-            echo "Updating Chart.yaml version for production release"
-            CLEAN_VERSION="${{ steps.vars.outputs.semantic_version }}"
-
-            # Ensure we have a clean semantic version (X.Y.Z)
-            if [[ "$CLEAN_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "Updating charts/fastapi/Chart.yaml version to $CLEAN_VERSION"
-              yq e -i ".version = \"$CLEAN_VERSION\"" "charts/fastapi/Chart.yaml"
-              yq e -i ".appVersion = \"$CLEAN_VERSION\"" "charts/fastapi/Chart.yaml"
+          # Also check Chart.yaml for prod
+          if [[ "$ENV" == "prod" && -n "$CHART_FILE" && -f "$CHART_FILE" ]]; then
+            # Ensure SEMANTIC_VERSION is clean X.Y.Z for comparison
+            if [[ "$SEMANTIC_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              if [[ "$CURRENT_CHART_VERSION" != "$SEMANTIC_VERSION" || "$CURRENT_APP_VERSION" != "$SEMANTIC_VERSION" ]]; then
+                NEEDS_UPDATE="true"
+                echo "Chart.yaml needs update: Versions mismatch."
+              fi
             else
-              echo "::warning::Not updating Chart.yaml version as semantic version '$CLEAN_VERSION' is not in X.Y.Z format"
+               echo "::warning::Cannot compare Chart.yaml version as target semantic version '$SEMANTIC_VERSION' is not in X.Y.Z format."
             fi
           fi
 
+          if [[ "$NEEDS_UPDATE" == "false" ]]; then
+            echo "✅ Helm values are already up-to-date with target tag '$DEPLOY_TAG'. No changes needed."
+            echo "updated=false" >> $GITHUB_OUTPUT
+            exit 0 # Exit successfully, no further steps needed
+          fi
+          # --- End Idempotency Check ---
+
+          echo "::group::Updating Image Tags and Chart Version"
+          echo "Updating values file: $VALUES_FILE"
+          echo "Updating backend tag: $CURRENT_BACKEND_TAG -> $DEPLOY_TAG"
+          yq e -i ".backend.tag = \"$DEPLOY_TAG\"" "$VALUES_FILE"
+          echo "Updating frontend tag: $CURRENT_FRONTEND_TAG -> $DEPLOY_TAG"
+          yq e -i ".frontend.tag = \"$DEPLOY_TAG\"" "$VALUES_FILE"
+
+          # Update Chart.yaml version for production if needed
+          if [[ "$ENV" == "prod" && -n "$CHART_FILE" && -f "$CHART_FILE" ]]; then
+            # Ensure SEMANTIC_VERSION is clean X.Y.Z
+            if [[ "$SEMANTIC_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              if [[ "$CURRENT_CHART_VERSION" != "$SEMANTIC_VERSION" || "$CURRENT_APP_VERSION" != "$SEMANTIC_VERSION" ]]; then
+                 echo "Updating Chart.yaml: $CHART_FILE"
+                 echo "Updating version: $CURRENT_CHART_VERSION -> $SEMANTIC_VERSION"
+                 yq e -i ".version = \"$SEMANTIC_VERSION\"" "$CHART_FILE"
+                 echo "Updating appVersion: $CURRENT_APP_VERSION -> $SEMANTIC_VERSION"
+                 yq e -i ".appVersion = \"$SEMANTIC_VERSION\"" "$CHART_FILE"
+              fi
+            else
+              echo "::warning::Not updating Chart.yaml version as semantic version '$SEMANTIC_VERSION' is not in X.Y.Z format"
+            fi
+          fi
           echo "::endgroup::"
 
-          echo "::group::Verification"
-          NEW_BACKEND_TAG=$(yq e '.backend.tag' "$VALUES_FILE")
-          NEW_FRONTEND_TAG=$(yq e '.frontend.tag' "$VALUES_FILE")
+          echo "::group::Verification after Update"
+          NEW_BACKEND_TAG=$(yq e '.backend.tag' "$VALUES_FILE" || echo "ERROR")
+          NEW_FRONTEND_TAG=$(yq e '.frontend.tag' "$VALUES_FILE" || echo "ERROR")
 
+          if [[ "$NEW_BACKEND_TAG" == "ERROR" || "$NEW_FRONTEND_TAG" == "ERROR" ]]; then
+             echo "::error::Failed to read tags after update!"
+             exit 1
+          fi
           if [[ "$NEW_BACKEND_TAG" != "$DEPLOY_TAG" || "$NEW_FRONTEND_TAG" != "$DEPLOY_TAG" ]]; then
-            echo "::error::Tag verification failed!"
+            echo "::error::Tag verification failed after update!"
             echo "Expected: $DEPLOY_TAG"
             echo "Got: backend=$NEW_BACKEND_TAG, frontend=$NEW_FRONTEND_TAG"
             exit 1
           fi
+          echo "✅ Tags successfully updated and verified in $VALUES_FILE"
 
-          echo "✅ Tags successfully updated and verified"
-          echo "Backend: $NEW_BACKEND_TAG"
-          echo "Frontend: $NEW_FRONTEND_TAG"
+          # Verify Chart.yaml for prod
+          if [[ "$ENV" == "prod" && -n "$CHART_FILE" && -f "$CHART_FILE" ]]; then
+             if [[ "$SEMANTIC_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+               NEW_CHART_VERSION=$(yq e '.version' "$CHART_FILE" || echo "ERROR")
+               NEW_APP_VERSION=$(yq e '.appVersion' "$CHART_FILE" || echo "ERROR")
+               if [[ "$NEW_CHART_VERSION" == "ERROR" || "$NEW_APP_VERSION" == "ERROR" ]]; then
+                  echo "::error::Failed to read Chart.yaml versions after update!"
+                  exit 1
+               fi
+               if [[ "$NEW_CHART_VERSION" != "$SEMANTIC_VERSION" || "$NEW_APP_VERSION" != "$SEMANTIC_VERSION" ]]; then
+                 echo "::error::Chart.yaml version verification failed after update!"
+                 echo "Expected: $SEMANTIC_VERSION"
+                 echo "Got: version=$NEW_CHART_VERSION, appVersion=$NEW_APP_VERSION"
+                 exit 1
+               fi
+               echo "✅ Chart.yaml versions successfully updated and verified"
+             fi
+          fi
           echo "::endgroup::"
 
           # Set outputs for use in later steps
           echo "updated=true" >> $GITHUB_OUTPUT
           echo "old_backend_tag=$CURRENT_BACKEND_TAG" >> $GITHUB_OUTPUT
           echo "old_frontend_tag=$CURRENT_FRONTEND_TAG" >> $GITHUB_OUTPUT
+          # Keep deploy_tag output as it's used in commit message/PR title
           echo "deploy_tag=$DEPLOY_TAG" >> $GITHUB_OUTPUT
 
       - name: Commit changes
         id: commit
+        # Only run if the update step indicated changes were made
         if: steps.update_helm.outputs.updated == 'true'
+        env: # Pass necessary variables to the script
+          ENV: ${{ steps.vars.outputs.env }}
+          DEPLOY_TAG: ${{ steps.update_helm.outputs.deploy_tag }}
+          RAW_VERSION: ${{ steps.vars.outputs.raw_version }}
+          OLD_BACKEND_TAG: ${{ steps.update_helm.outputs.old_backend_tag }}
+          OLD_FRONTEND_TAG: ${{ steps.update_helm.outputs.old_frontend_tag }}
+          SEMANTIC_VERSION: ${{ steps.vars.outputs.semantic_version }}
         run: |
           echo "::group::Git Configuration"
-          git config --global user.name "github-actions"
-          git config --global user.email "github-actions@github.com"
+          git config --global user.name "${{ env.GIT_AUTHOR_NAME }}"
+          git config --global user.email "${{ env.GIT_AUTHOR_EMAIL }}"
           echo "::endgroup::"
 
           DEFAULT_BRANCH="main"
@@ -353,162 +268,110 @@ jobs:
 
           echo "::group::Branch Creation"
           TIMESTAMP=$(date +%Y%m%d%H%M%S)
-          TAG_SAFE=$(echo "${{ steps.vars.outputs.tag }}" | sed 's/[^a-zA-Z0-9]/-/g')
-          BRANCH_NAME="update-image-${TAG_SAFE}-${TIMESTAMP}"
+          # Use deploy_tag for branch name safety
+          TAG_SAFE=$(echo "$DEPLOY_TAG" | sed 's/[^a-zA-Z0-9]/-/g')
+          BRANCH_NAME="helm-update-${TAG_SAFE}-${TIMESTAMP}"
           echo "Creating new branch: $BRANCH_NAME"
           git checkout -b "$BRANCH_NAME"
           echo "::endgroup::"
 
           echo "::group::Git Status and Changes"
           git status
-          git add config/helm/*.yaml
+          # Add specific files that might have changed
+          git add config/helm/values-*.yaml charts/fastapi/Chart.yaml || echo "No files to add, continuing..."
 
-          COMMIT_MSG=$(cat << 'EOF'
-          chore: update image tags for ${{ steps.vars.outputs.env }} environment
-
-          From:
-          - backend: ${{ steps.update_helm.outputs.old_backend_tag }}
-          - frontend: ${{ steps.update_helm.outputs.old_frontend_tag }}
-
-          To:
-          - backend: ${{ steps.update_helm.outputs.deploy_tag }}
-          - frontend: ${{ steps.update_helm.outputs.deploy_tag }}
-
-          Environment: ${{ steps.vars.outputs.env }}
-          Original Tag: ${{ steps.vars.outputs.tag }}
-          EOF
-          )
-
-          if git commit -m "$COMMIT_MSG"; then
-            echo "✅ Changes committed successfully"
-            if git push origin "$BRANCH_NAME"; then
-              echo "✅ Changes pushed successfully"
-              echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
-              echo "default_branch=$DEFAULT_BRANCH" >> $GITHUB_OUTPUT
-              echo "has_changes=true" >> $GITHUB_OUTPUT
+          # Check if there are staged changes before committing
+          if ! git diff --staged --quiet; then
+            echo "Staged changes detected, proceeding with commit."
+            echo "Generating commit message..."
+            # Generate commit message using script and commit using -F - (read from stdin)
+            if ./scripts/generate_commit_message.sh | git commit -F -; then
+              echo "✅ Changes committed successfully"
+              if git push origin "$BRANCH_NAME"; then
+                echo "✅ Changes pushed successfully"
+                echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+                echo "default_branch=$DEFAULT_BRANCH" >> $GITHUB_OUTPUT
+                echo "has_changes=true" >> $GITHUB_OUTPUT
+              else
+                echo "::error::Failed to push changes to remote"
+                exit 1
+              fi
             else
-              echo "::error::Failed to push changes to remote"
+              echo "::error::git commit command failed"
               exit 1
             fi
           else
-            echo "No changes to commit. Possible reasons:"
-            echo "1. Tags were already up to date"
-            echo "2. No modifications were made to the files"
-            git status
+            # This case should ideally not be reached due to the 'updated=true' check
+            echo "No staged changes detected. Skipping commit."
             echo "has_changes=false" >> $GITHUB_OUTPUT
           fi
-          echo "::endgroup::"
+          echo "::endgroup::" # End Git Status and Changes group
+
+      - name: Prepare PR Body
+        if: steps.commit.outputs.has_changes == 'true'
+        env: # Pass necessary variables to the script from previous steps' outputs/env
+          ENV: ${{ steps.vars.outputs.env }}
+          RAW_VERSION: ${{ steps.vars.outputs.raw_version }}
+          DEPLOY_TAG: ${{ steps.update_helm.outputs.deploy_tag }}
+          OLD_BACKEND_TAG: ${{ steps.update_helm.outputs.old_backend_tag }}
+          OLD_FRONTEND_TAG: ${{ steps.update_helm.outputs.old_frontend_tag }}
+          SEMANTIC_VERSION: ${{ steps.vars.outputs.semantic_version }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: ./scripts/generate_pr_body.sh
 
       - name: Create Pull Request
+        # Only run if the commit step indicated changes were pushed
         if: steps.commit.outputs.has_changes == 'true'
         id: create_pr
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.MACHINE_USER_TOKEN }}
-          commit-message: "chore: update image tags for ${{ steps.vars.outputs.env }} environment"
+          # Commit message is handled by the previous step
+          # commit-message: "chore(helm): update image tags for ${{ steps.vars.outputs.env }} to ${{ steps.update_helm.outputs.deploy_tag }}"
           branch: ${{ steps.commit.outputs.branch_name }}
           base: ${{ steps.commit.outputs.default_branch }}
-          title: "Update image tags to ${{ steps.update_helm.outputs.deploy_tag }} for ${{ steps.vars.outputs.env }}"
-          body: |
-            ## Changes Summary
-            This PR updates the image tags in the Helm values files for the **${{ steps.vars.outputs.env }}** environment.
-
-            ### Tag Updates
-            **From:**
-            - Backend: `${{ steps.update_helm.outputs.old_backend_tag }}`
-            - Frontend: `${{ steps.update_helm.outputs.old_frontend_tag }}`
-
-            **To:**
-            - Backend: `${{ steps.update_helm.outputs.deploy_tag }}`
-            - Frontend: `${{ steps.update_helm.outputs.deploy_tag }}`
-
-            **Original Tag:** `${{ steps.vars.outputs.tag }}`
-
-            ### Additional Information
-            - Environment: `${{ steps.vars.outputs.env }}`
-            - Triggered by: `${{ github.event_name }}`
-            - Workflow run: [View Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-
-            This PR was automatically created by the update-helm workflow.
+          # Use env vars for title consistency
+          title: "chore(helm): update image tags for ${{ env.ENV }} to ${{ env.DEPLOY_TAG }}" # Concise title
+          # Use the prepared PR body file
+          body-path: pr_body.md
           labels: |
             automated-pr
             helm-update
-            env/${{ steps.vars.outputs.env }}
-          delete-branch: true
+            env/${{ env.ENV }} # Use env var
+          delete-branch: true # Delete the branch after merge/close
 
       - name: Auto-merge Pull Request
+        # Only run if PR was created
         if: steps.create_pr.outputs.pull-request-number
         run: |
           PR_NUMBER=${{ steps.create_pr.outputs.pull-request-number }}
           echo "Created PR #${PR_NUMBER}"
 
-          # Install GitHub CLI
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-          sudo apt update
-          sudo apt install gh
+          # Install GitHub CLI if not already cached
+          if ! command -v gh &> /dev/null; then
+            echo "Installing GitHub CLI..."
+            # Use recommended installation method
+            type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+            && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+            && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+            && sudo apt update \
+            && sudo apt install gh -y
+          else
+             echo "GitHub CLI already installed."
+          fi
 
           # Authenticate with GitHub CLI
           echo "${{ secrets.MACHINE_USER_TOKEN }}" | gh auth login --with-token
 
           # Enable auto-merge for the PR
           echo "Enabling auto-merge for PR #${PR_NUMBER}"
-          gh pr merge ${PR_NUMBER} --auto --merge
+          # Use --merge flag for merge commit strategy, add --delete-branch here too
+          gh pr merge "${PR_NUMBER}" --auto --merge --delete-branch
 
           echo "Auto-merge enabled for PR #${PR_NUMBER}"
 
-      - name: Create GitHub Release (if not triggered by release)
-        if: ${{ github.event_name != 'release' }}
-        run: |
-          # Use gh CLI to create a release
-          echo "Creating GitHub release for tag ${{ steps.process-tag.outputs.tag_name }}..."
-
-          # Authenticate with GitHub CLI
-          echo "${{ secrets.MACHINE_USER_TOKEN }}" | gh auth login --with-token
-
-          # Create release notes file
-          cat > release_notes.md << EOF
-          ## Helm Chart Update
-
-          This release updates the Helm charts for the **${{ steps.vars.outputs.env }}** environment.
-
-          ### Version Information
-          - Environment: ${{ steps.vars.outputs.env }}
-          - Helm Chart Version: ${{ steps.process-tag.outputs.version }}
-          - Image Tag: ${{ steps.process-tag.outputs.deploy_tag }}
-          - Git Hash: ${{ steps.process-tag.outputs.git_hash }}
-
-          ### Changes
-          Updated image tags in Helm values from:
-          - Backend: \`${{ steps.update_helm.outputs.old_backend_tag }}\`
-          - Frontend: \`${{ steps.update_helm.outputs.old_frontend_tag }}\`
-
-          To:
-          - Backend: \`${{ steps.update_helm.outputs.deploy_tag }}\`
-          - Frontend: \`${{ steps.update_helm.outputs.deploy_tag }}\`
-          EOF
-
-          # Check if release already exists
-          if gh release view "${{ steps.process-tag.outputs.tag_name }}" &>/dev/null; then
-            echo "Release ${{ steps.process-tag.outputs.tag_name }} already exists, updating it..."
-            # Update existing release
-            if gh release edit "${{ steps.process-tag.outputs.tag_name }}" \
-              --title "Release ${{ steps.process-tag.outputs.tag_name }}" \
-              --notes-file release_notes.md \
-              ${{ steps.vars.outputs.env == 'staging' && '--prerelease' || '' }}; then
-              echo "✅ GitHub release updated successfully!"
-            else
-              echo "::warning::Failed to update release, but continuing workflow"
-            fi
-          else
-            # Create new release
-            if gh release create "${{ steps.process-tag.outputs.tag_name }}" \
-              --title "Release ${{ steps.process-tag.outputs.tag_name }}" \
-              --notes-file release_notes.md \
-              --generate-notes \
-              ${{ steps.vars.outputs.env == 'staging' && '--prerelease' || '' }}; then
-              echo "✅ GitHub release created successfully!"
-            else
-              echo "::warning::Failed to create release, but continuing workflow"
-            fi
-          fi
+      # This step is no longer needed as app-release-trigger handles release creation
+      # - name: Create GitHub Release (if not triggered by release)
+      #   ...

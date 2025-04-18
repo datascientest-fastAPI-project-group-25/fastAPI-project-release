@@ -9,7 +9,7 @@ async function main() {
   await execCommand('kubectl create namespace fastapi-prod --dry-run=client -o yaml | kubectl apply -f -');
 
   logger.info('Installing Helm chart for PRODUCTION environment...');
-  await execCommand('helm upgrade --install fastapi-prod ./charts/fastapi -f ./config/helm/production.yaml --namespace fastapi-prod --create-namespace --timeout 5m --force --debug');
+  await execCommand('helm upgrade --install fastapi-prod ./charts/fastapi -f ./config/helm/values-prod.yaml --namespace fastapi-prod --create-namespace --timeout 5m --force --debug');
 
   logger.success('Deployment to PRODUCTION environment complete!');
   console.log('Run these commands to access the application:');
