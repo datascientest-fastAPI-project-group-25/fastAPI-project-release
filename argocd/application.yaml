@@ -26,20 +26,20 @@ spec:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: fastapi-app-staging
+  name: fastapi-stg # Standardized name
   namespace: argocd
 spec:
   project: default
   source:
     repoURL: https://github.com/datascientest-fastapi-project-group-25/fastAPI-project-release.git
-    targetRevision: stg  # The staging branch
-    path: fastapi-helm
+    targetRevision: HEAD # Align with application-stg.yaml, assuming changes are merged to main/HEAD
+    path: charts/fastapi # Align with application-stg.yaml path
     helm:
       valueFiles:
-        - values.staging.yaml  # We'll create this file next
+        - ../../config/helm/values-stg.yaml # Align with application-stg.yaml value file path
   destination:
     server: https://kubernetes.default.svc
-    namespace: fastapi-helm-staging
+    namespace: argocd-stg # Align with application-stg.yaml namespace
   syncPolicy:
     automated:
       prune: true

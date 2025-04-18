@@ -13,7 +13,7 @@ spec:
     path: charts/fastapi
     helm:
       valueFiles:
-        - ../../config/helm/production.yaml
+        - ../../config/helm/values-prod.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd-prod

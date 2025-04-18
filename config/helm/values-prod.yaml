@@ -1,4 +1,4 @@
-# Values for production environment
+# Values for prod environment
 app:
   name: fastapi-app
   namespace: fastapi-helm-prod
@@ -7,8 +7,8 @@ app:
 backend:
   name: backend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend
-  tag: production-latest  # This will be updated by the CI pipeline
-  replicas: 2  # Higher replica count for production
+  tag: prod-latest  # This will be updated by the CI pipeline
+  replicas: 2  # Higher replica count for prod
   port: 8000
   service:
     name: backend-service
@@ -19,8 +19,8 @@ backend:
 frontend:
   name: frontend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend
-  tag: production-latest  # This will be updated by the CI pipeline
-  replicas: 2  # Higher replica count for production
+  tag: prod-latest  # This will be updated by the CI pipeline
+  replicas: 2  # Higher replica count for prod
   port: 80
   service:
     name: frontend-service
@@ -33,7 +33,7 @@ database:
   image: postgres
   tag: 12
   storage:
-    size: 10Gi  # Larger storage for production
+    size: 10Gi  # Larger storage for prod
   credentials:
     secretRef:
       name: postgres-credentials  # Reference to external secret
@@ -55,7 +55,7 @@ configMap:
   databaseUrl: "${DATABASE_URL}"  # Will be set from external secret
   allowedOrigins: "https://dashboard.${DOMAIN}"  # Will be interpolated from environment variables
   corsSettings: true
-  debugMode: false  # Disable debug mode in production
+  debugMode: false  # Disable debug mode in prod
   secretKeyRef:
     name: app-secrets
     key: secretKey  # Reference to external secret
@@ -82,7 +82,7 @@ securityContext:
 podSecurityContext:
   runAsNonRoot: true
 
-# Production-specific settings
+# Prod-specific settings
 livenessProbe:
   initialDelaySeconds: 30
   periodSeconds: 10
@@ -110,25 +110,25 @@ externalSecrets:
       data:
         - key: username
           remoteRef:
-            key: production/postgres/credentials
+            key: prod/postgres/credentials
             property: username
         - key: password
           remoteRef:
-            key: production/postgres/credentials
+            key: prod/postgres/credentials
             property: password
         - key: database
           remoteRef:
-            key: production/postgres/credentials
+            key: prod/postgres/credentials
             property: database
     - name: app-secrets
       secretStore: aws-secrets
       data:
         - key: secretKey
           remoteRef:
-            key: production/app/secrets
+            key: prod/app/secrets
             property: secretKey
 
-# Network policies for production
+# Network policies for prod
 networkPolicies:
   enabled: true
   ingressRules:
