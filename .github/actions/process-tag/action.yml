@@ -43,9 +43,10 @@ runs:
         set -o pipefail
 
         # --- Helper Functions ---
-        log_error() { echo " Error: $1" >&2; exit 1; }
-        log_info() { echo "  $1"; }
-        log_success() { echo " $1"; }
+        log_error() { echo "::error::$1" >&2; exit 1; }
+        log_info() { echo "::debug::$1"; }
+        log_success() { echo "::notice::$1"; }
+        log_debug() { echo "::group::Debug Info"; echo "$1"; echo "::endgroup::"; }
 
         # --- Input Variables (Renamed for clarity) ---
         INPUT_PAYLOAD_VERSION="${{ inputs.raw_version }}"         # Expected: stg-<hash> (stg), X.Y.Z (prod)

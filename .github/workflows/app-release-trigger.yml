@@ -16,7 +16,7 @@ jobs:
 
       - name: Debug payload
         run: |
-          echo "Received payload:"
+          echo "::group::Received Payload"
           echo "version: '${{ github.event.client_payload.version }}'"
           echo "environment: '${{ github.event.client_payload.environment }}'"
           echo "semantic_version: '${{ github.event.client_payload.semantic_version }}'"
@@ -24,6 +24,24 @@ jobs:
           echo "sha: '${{ github.event.client_payload.sha }}'"
           echo "backend_image: '${{ github.event.client_payload.backend_image }}'"
           echo "frontend_image: '${{ github.event.client_payload.frontend_image }}'"
+          echo "::endgroup::"
+
+          # Validate that all required fields are present
+          echo "::group::Payload Validation"
+          MISSING_FIELDS=""
+          [ -z "${{ github.event.client_payload.version }}" ] && MISSING_FIELDS="${MISSING_FIELDS}version "
+          [ -z "${{ github.event.client_payload.environment }}" ] && MISSING_FIELDS="${MISSING_FIELDS}environment "
+          [ -z "${{ github.event.client_payload.semantic_version }}" ] && MISSING_FIELDS="${MISSING_FIELDS}semantic_version "
+          [ -z "${{ github.event.client_payload.clean_semver }}" ] && MISSING_FIELDS="${MISSING_FIELDS}clean_semver "
+          [ -z "${{ github.event.client_payload.sha }}" ] && MISSING_FIELDS="${MISSING_FIELDS}sha "
+
+          if [ -n "$MISSING_FIELDS" ]; then
+            echo "::error::Missing required fields in payload: $MISSING_FIELDS"
+            exit 1
+          else
+            echo "All required fields are present in the payload."
+          fi
+          echo "::endgroup::"
 
       - name: Validate payload
         run: |
@@ -134,6 +152,7 @@ jobs:
       - name: Create GitHub Release
         # Run if the tag was successfully created or already existed
         if: steps.create_tag.outputs.tag_verified == 'true'
+        id: create_release
         run: |
           # Use gh CLI to create a release
           echo "Creating GitHub release for tag ${{ steps.parse.outputs.tag_name }}..."
@@ -166,28 +185,41 @@ jobs:
           EOF
 
           # Check if release already exists
-          if gh release view "${{ steps.parse.outputs.tag_name }}" &>/dev/null; then
-            echo "Release ${{ steps.parse.outputs.tag_name }} already exists, updating it..."
+          RELEASE_EXISTS="false"
+          RELEASE_ID=""
+          if gh release view "${{ steps.parse.outputs.tag_name }}" --json id &>/dev/null; then
+            RELEASE_EXISTS="true"
+            RELEASE_ID=$(gh release view "${{ steps.parse.outputs.tag_name }}" --json id --jq '.id')
+            echo "Release ${{ steps.parse.outputs.tag_name }} already exists (ID: $RELEASE_ID), updating it..."
+
             # Update existing release
             gh release edit "${{ steps.parse.outputs.tag_name }}" \
               --title "Release ${{ steps.parse.outputs.tag_name }}" \
               --notes-file release_notes.md \
               ${{ github.event.client_payload.environment == 'stg' && '--prerelease' || '' }}
 
-            # No assets to upload in this workflow anymore
             echo "✅ GitHub release updated successfully!"
+            echo "release_id=$RELEASE_ID" >> $GITHUB_OUTPUT
+            echo "release_exists=true" >> $GITHUB_OUTPUT
           else
             # Create new release without assets first
             if gh release create "${{ steps.parse.outputs.tag_name }}" \
               --title "Release ${{ steps.parse.outputs.tag_name }}" \
               --notes-file release_notes.md \
               --generate-notes \
+              --verify-tag \
+              --latest \
               ${{ github.event.client_payload.environment == 'stg' && '--prerelease' || '' }}; then
 
-              # No assets to upload in this workflow anymore
-              echo "✅ GitHub release created successfully!"
+              # Get the release ID
+              RELEASE_ID=$(gh release view "${{ steps.parse.outputs.tag_name }}" --json id --jq '.id')
+              echo "✅ GitHub release created successfully! (ID: $RELEASE_ID)"
+              echo "release_id=$RELEASE_ID" >> $GITHUB_OUTPUT
+              echo "release_exists=true" >> $GITHUB_OUTPUT
             else
-              echo "::warning::Failed to create release, but continuing workflow"
+              echo "::error::Failed to create release"
+              echo "release_exists=false" >> $GITHUB_OUTPUT
+              exit 1
             fi
           fi
 
@@ -196,8 +228,39 @@ jobs:
         # Run if the tag was successfully created or already existed
         if: steps.create_tag.outputs.tag_verified == 'true'
         run: |
+          echo "::group::Release Information"
           echo "A GitHub release was created/updated with tag ${{ steps.parse.outputs.tag_name }}"
+          echo "Release ID: ${{ steps.create_release.outputs.release_id }}"
           echo "Environment: ${{ steps.parse.outputs.environment }}"
+          echo "Release exists: ${{ steps.create_release.outputs.release_exists }}"
+          echo "::endgroup::"
+
+          echo "::group::Next Steps"
           echo "This should trigger the update-helm.yaml workflow via the release: [published] event."
           echo "If update-helm.yaml doesn't run, check if the release was actually published (not a draft)."
           echo "Staging releases are marked as pre-releases: ${{ steps.parse.outputs.environment == 'stg' }}"
+          echo "::endgroup::"
+
+          # Verify the release is published and visible
+          echo "::group::Release Verification"
+          if ! command -v gh &> /dev/null; then
+            echo "GitHub CLI not available for verification."
+          else
+            echo "Verifying release is published..."
+            RELEASE_INFO=$(gh release view "${{ steps.parse.outputs.tag_name }}" --json name,tagName,isDraft,isPrerelease,isLatest,publishedAt 2>/dev/null || echo '{}')
+
+            if [ "$RELEASE_INFO" != "{}" ]; then
+              echo "Release details:"
+              echo "$RELEASE_INFO" | jq .
+
+              IS_DRAFT=$(echo "$RELEASE_INFO" | jq -r '.isDraft')
+              if [ "$IS_DRAFT" == "true" ]; then
+                echo "::warning::Release is still in draft state. This will not trigger the update-helm.yaml workflow."
+              else
+                echo "✅ Release is published (not a draft). This should trigger the update-helm.yaml workflow."
+              fi
+            else
+              echo "::warning::Could not retrieve release information."
+            fi
+          fi
+          echo "::endgroup::"
