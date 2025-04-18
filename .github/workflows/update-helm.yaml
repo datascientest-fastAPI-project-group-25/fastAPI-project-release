@@ -185,9 +185,9 @@ jobs:
           echo "::group::Updating Image Tags and Chart Version"
           echo "Updating values file: $VALUES_FILE"
           echo "Updating backend tag: $CURRENT_BACKEND_TAG -> $DEPLOY_TAG"
-          yq e -i ".backend.tag = \"$DEPLOY_TAG\"" "$VALUES_FILE"
+          yq e ".backend.tag = \"$DEPLOY_TAG\"" "$VALUES_FILE" > "${VALUES_FILE}.tmp" && mv "${VALUES_FILE}.tmp" "$VALUES_FILE"
           echo "Updating frontend tag: $CURRENT_FRONTEND_TAG -> $DEPLOY_TAG"
-          yq e -i ".frontend.tag = \"$DEPLOY_TAG\"" "$VALUES_FILE"
+          yq e ".frontend.tag = \"$DEPLOY_TAG\"" "$VALUES_FILE" > "${VALUES_FILE}.tmp" && mv "${VALUES_FILE}.tmp" "$VALUES_FILE"
 
           # Update Chart.yaml version for production if needed
           if [[ "$ENV" == "prod" && -n "$CHART_FILE" && -f "$CHART_FILE" ]]; then
@@ -196,9 +196,9 @@ jobs:
               if [[ "$CURRENT_CHART_VERSION" != "$SEMANTIC_VERSION" || "$CURRENT_APP_VERSION" != "$SEMANTIC_VERSION" ]]; then
                  echo "Updating Chart.yaml: $CHART_FILE"
                  echo "Updating version: $CURRENT_CHART_VERSION -> $SEMANTIC_VERSION"
-                 yq e -i ".version = \"$SEMANTIC_VERSION\"" "$CHART_FILE"
+                 yq e ".version = \"$SEMANTIC_VERSION\"" "$CHART_FILE" > "${CHART_FILE}.tmp" && mv "${CHART_FILE}.tmp" "$CHART_FILE"
                  echo "Updating appVersion: $CURRENT_APP_VERSION -> $SEMANTIC_VERSION"
-                 yq e -i ".appVersion = \"$SEMANTIC_VERSION\"" "$CHART_FILE"
+                 yq e ".appVersion = \"$SEMANTIC_VERSION\"" "$CHART_FILE" > "${CHART_FILE}.tmp" && mv "${CHART_FILE}.tmp" "$CHART_FILE"
               fi
             else
               echo "::warning::Not updating Chart.yaml version as semantic version '$SEMANTIC_VERSION' is not in X.Y.Z format"
