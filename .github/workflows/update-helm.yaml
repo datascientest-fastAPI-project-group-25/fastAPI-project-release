@@ -91,11 +91,12 @@ jobs:
 
       - name: Update Helm values with new image tag (Idempotent)
         id: update_helm
+        env: # Pass outputs as environment variables
+          ENV: ${{ steps.vars.outputs.env }}
+          DEPLOY_TAG: ${{ steps.vars.outputs.deploy_tag }}
+          SEMANTIC_VERSION: ${{ steps.vars.outputs.semantic_version }}
         run: |
-          ENV="${{ steps.vars.outputs.env }}"
-          DEPLOY_TAG="${{ steps.vars.outputs.deploy_tag }}"
-          SEMANTIC_VERSION="${{ steps.vars.outputs.semantic_version }}" # For Chart.yaml update
-
+          # Access values from environment variables
           echo "::group::Environment and Target Tag Information"
           echo "Environment: $ENV"
           echo "Target Deploy Tag: $DEPLOY_TAG"
@@ -308,7 +309,7 @@ jobs:
 
       - name: Prepare PR Body
         if: steps.commit.outputs.has_changes == 'true'
-        env: # Pass necessary variables to the script
+        env: # Pass necessary variables to the script from previous steps' outputs/env
           ENV: ${{ steps.vars.outputs.env }}
           RAW_VERSION: ${{ steps.vars.outputs.raw_version }}
           DEPLOY_TAG: ${{ steps.update_helm.outputs.deploy_tag }}
@@ -330,13 +331,14 @@ jobs:
           # commit-message: "chore(helm): update image tags for ${{ steps.vars.outputs.env }} to ${{ steps.update_helm.outputs.deploy_tag }}"
           branch: ${{ steps.commit.outputs.branch_name }}
           base: ${{ steps.commit.outputs.default_branch }}
-          title: "chore(helm): update image tags for ${{ steps.vars.outputs.env }} to ${{ steps.update_helm.outputs.deploy_tag }}" # Concise title
+          # Use env vars for title consistency
+          title: "chore(helm): update image tags for ${{ env.ENV }} to ${{ env.DEPLOY_TAG }}" # Concise title
           # Use the prepared PR body file
           body-path: pr_body.md
           labels: |
             automated-pr
             helm-update
-            env/${{ steps.vars.outputs.env }}
+            env/${{ env.ENV }} # Use env var
           delete-branch: true # Delete the branch after merge/close
 
       - name: Auto-merge Pull Request
