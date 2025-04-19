@@ -23,7 +23,7 @@ else
   echo "GitHub CLI already installed."
 fi
 
-# Authenticate GitHub CLI
+# Authenticate GitHub CLI using GH_TOKEN for non-interactive login
 echo "${GH_TOKEN}" | gh auth login --with-token
 
 # Merge PR automatically
