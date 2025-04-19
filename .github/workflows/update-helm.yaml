@@ -29,7 +29,7 @@ jobs:
           sudo chmod +x /usr/local/bin/yq
 
       - name: Make scripts executable
-        run: chmod +x ./scripts/generate_commit_message.sh ./scripts/generate_pr_body.sh ./scripts/get_release_vars.sh ./scripts/update_helm_values.sh
+        run: chmod +x ./scripts/generate_commit_message.sh ./scripts/generate_pr_body.sh ./scripts/get_release_vars.sh ./scripts/update_helm_values.sh ./scripts/commit_changes.sh
 
       - name: Debug Event Information
         run: |
@@ -55,124 +55,18 @@ jobs:
 
       - name: Commit changes
         id: commit
-        # Only run if the update step indicated changes were made
         if: steps.update_helm.outputs.updated == 'true'
-        env: # Pass necessary variables to the script
+        env:
           ENV: ${{ steps.vars.outputs.env }}
           DEPLOY_TAG: ${{ steps.update_helm.outputs.deploy_tag }}
-          GITHUB_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
           RAW_VERSION: ${{ steps.vars.outputs.raw_version }}
           OLD_BACKEND_TAG: ${{ steps.update_helm.outputs.old_backend_tag }}
           OLD_FRONTEND_TAG: ${{ steps.update_helm.outputs.old_frontend_tag }}
           SEMANTIC_VERSION: ${{ steps.vars.outputs.semantic_version }}
-        run: |
-          echo "::group::Git Configuration"
-          git config --global user.name "${{ env.GIT_AUTHOR_NAME }}"
-          git config --global user.email "${{ env.GIT_AUTHOR_EMAIL }}"
-          echo "::endgroup::"
-
-          DEFAULT_BRANCH="main"
-          echo "Default branch: $DEFAULT_BRANCH"
-
-          echo "::group::Git Status and Staging"
-          git status
-          # Add specific files that might have changed
-          git add config/helm/values-*.yaml charts/fastapi/Chart.yaml || echo "No files to add, continuing..."
-          git status # Check status after add
-
-          # Check if there are staged changes before creating branch and committing
-          if ! git diff --staged --quiet; then
-            echo "Staged changes detected, proceeding with branch creation and commit."
-
-            # Generate commit message using the script
-            echo "::group::Generating Commit Message"
-            COMMIT_MESSAGE=$(./scripts/generate_commit_message.sh)
-            echo "Generated commit message: $COMMIT_MESSAGE"
-            echo "::endgroup::"
-
-            # Generate unique branch name
-            TIMESTAMP=$(date +%Y%m%d%H%M%S)
-            if [[ "$ENV" == "prod" ]]; then
-                # Prod branch: helm-update-prod-<semver>-<timestamp>
-                BRANCH_SEMVER=$(echo "$SEMANTIC_VERSION" | sed 's/\./-/g') # Replace dots for branch name
-                NEW_BRANCH="helm-update-prod-${BRANCH_SEMVER}-${TIMESTAMP}"
-            else
-                # Stg branch: helm-update-stg-<tag>-<timestamp>
-                BRANCH_TAG=$(echo "$DEPLOY_TAG" | sed 's/[^a-zA-Z0-9-]/-/g') # Sanitize tag for branch name
-                NEW_BRANCH="helm-update-stg-${BRANCH_TAG}-${TIMESTAMP}"
-            fi
-            echo "New branch name: $NEW_BRANCH"
-            echo "branch_name=$NEW_BRANCH" >> $GITHUB_OUTPUT
-
-            echo "::group::Branch Creation"
-            echo "Creating and switching to new branch: $NEW_BRANCH"
-            if git show-ref --verify --quiet "refs/heads/$NEW_BRANCH"; then
-                echo "::warning::Branch $NEW_BRANCH already exists locally. Checking it out."
-                git checkout "$NEW_BRANCH"
-            else
-                git checkout -b "$NEW_BRANCH"
-            fi
-            echo "::endgroup::"
-
-            echo "::group::Committing Changes"
-            echo "Staging changes detected, proceeding with commit."
-            # Commit the changes with the generated message
-            git commit -m "$COMMIT_MESSAGE"
-            echo "✅ Changes committed successfully to branch $NEW_BRANCH"
-            echo "::endgroup::"
-
-            echo "::group::Pushing Branch"
-            # Push the new branch to the remote repository
-            if git push --set-upstream origin "$NEW_BRANCH"; then
-              echo "✅ Branch $NEW_BRANCH pushed successfully."
-              echo "committed=true" >> $GITHUB_OUTPUT # Indicate commit & push happened
-              echo "::endgroup::"
-
-              echo "::group::Creating Pull Request using gh cli"
-              echo "Generating PR body..."
-              PR_BODY=$(./scripts/generate_pr_body.sh)
-              echo "PR Body generated."
-
-              echo "Attempting to create PR for branch $NEW_BRANCH into $DEFAULT_BRANCH..."
-              # Attempt to create the PR using the GITHUB_TOKEN from the step env
-              # Use --fill to use commit message for title and body if body script fails
-              if PR_URL=$(GH_TOKEN="${GITHUB_TOKEN}" gh pr create --base "$DEFAULT_BRANCH" --head "$NEW_BRANCH" --title "$COMMIT_MESSAGE" --body "$PR_BODY" 2>&1); then
-                 echo "✅ Pull Request created successfully: $PR_URL"
-                 PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
-                 echo "Extracted PR Number: $PR_NUMBER"
-                 echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
-              else
-                 # Check if PR creation failed because it already exists
-                 if echo "$PR_URL" | grep -q 'A pull request for .* already exists'; then
-                    echo "::warning::Pull request for branch $NEW_BRANCH already exists. Attempting to find it."
-                    EXISTING_PR_NUMBER=$(gh pr list --head "$NEW_BRANCH" --json number -q '.[0].number')
-                    if [[ -n "$EXISTING_PR_NUMBER" ]]; then
-                       echo "Found existing PR number: $EXISTING_PR_NUMBER"
-                       echo "pr_number=$EXISTING_PR_NUMBER" >> $GITHUB_OUTPUT
-                    else
-                       echo "::error::Failed to find existing PR for branch $NEW_BRANCH."
-                       exit 1
-                    fi
-                 else
-                    echo "::error::Failed to create pull request: $PR_URL"
-                    exit 1
-                 fi
-              fi
-              echo "::endgroup::"
-
-            else
-              echo "::error::Failed to push branch $NEW_BRANCH to remote"
-              exit 1
-            fi
-            echo "::endgroup::" # Corresponds to Pushing Branch group
-
-          else
-            echo "✅ No staged changes detected. Nothing to commit or push."
-            echo "committed=false" >> $GITHUB_OUTPUT
-          fi
+          GITHUB_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
+        run: ./scripts/commit_changes.sh
 
       - name: Enable Auto-Merge
-        # Only run if a PR was created in the previous step
         if: steps.commit.outputs.pr_number
         env:
           PR_NUMBER: ${{ steps.commit.outputs.pr_number }}
