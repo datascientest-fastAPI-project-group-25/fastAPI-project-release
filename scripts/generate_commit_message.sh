@@ -12,7 +12,7 @@ if [[ -z "$ENV" || -z "$DEPLOY_TAG" || -z "$RAW_VERSION" || -z "$OLD_BACKEND_TAG
 fi
 
 # Generate commit message title
-echo "chore(helm): update image tags for ${ENV} to ${DEPLOY_TAG}"
+echo "chore(helm) Update image tags for ${ENV} to ${DEPLOY_TAG}"
 echo "" # Blank line
 
 # Generate commit message body

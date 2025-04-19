@@ -1,0 +1,64 @@
+# Production values for fastapi-app
+
+app:
+  namespace: fastapi-prod
+
+backend:
+  replicas: 2
+  tag: stable
+
+frontend:
+  replicas: 2
+  tag: stable
+
+# Production ingress configuration
+ingress:
+  enabled: true
+  host: dashboard.example.com
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+
+# Production resource limits
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+# Production autoscaling
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 75
+
+# ConfigMap values (non-sensitive)
+configMap:
+  allowedOrigins: https://dashboard.example.com
+  corsSettings: "true"
+  debugMode: "false"
+
+# Secret values (sensitive)
+secrets:
+  # These values should be replaced with actual production credentials
+  # Example format for database URL: postgresql://user:password@host:5432/dbname
+  databaseUrl: ENC[replace_with_encrypted_production_db_url]
+  secretKey: ENC[replace_with_encrypted_production_secret_key]
+
+# Production security context
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
