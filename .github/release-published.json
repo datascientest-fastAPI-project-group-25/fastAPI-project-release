@@ -1,0 +1,9 @@
+{
+  "action": "published",
+  "release": {
+    "tag_name": "stg-1.2.3",
+    "name": "stg-1.2.3",
+    "draft": false,
+    "prerelease": false
+  }
+}
