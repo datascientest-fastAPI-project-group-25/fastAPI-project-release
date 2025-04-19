@@ -82,25 +82,91 @@ jobs:
 
           echo "Payload validation successful"
 
+      - name: Prepare tag inputs
+        id: prepare-inputs
+        run: |
+          # Set default values for optional inputs
+          VERSION="${{ github.event.client_payload.version }}"
+          ENV="${{ github.event.client_payload.environment }}"
+          SEMANTIC_VERSION="${{ github.event.client_payload.semantic_version }}"
+          CLEAN_SEMVER="${{ github.event.client_payload.clean_semver }}"
+          SHA="${{ github.event.client_payload.sha }}"
+          
+          echo "::group::Input Validation and Defaults"
+          echo "Raw version: $VERSION"
+          echo "Environment: $ENV"
+          echo "Semantic version from payload: $SEMANTIC_VERSION"
+          echo "Clean semver from payload: $CLEAN_SEMVER"
+          echo "SHA from payload: $SHA"
+          
+          # Derive semantic_version if missing
+          if [[ -z "$SEMANTIC_VERSION" ]]; then
+            if [[ "$ENV" == "stg" ]]; then
+              # For staging, if version is stg-<hash>, use a default semantic version with -stg suffix
+              if [[ "$VERSION" =~ ^stg-([a-f0-9]+)$ ]]; then
+                # Use a default semantic version with -stg suffix if not provided
+                SEMANTIC_VERSION="0.1.0-stg"
+                echo "Derived staging semantic version: $SEMANTIC_VERSION"
+              elif [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+                # If version is already semantic, add -stg suffix
+                SEMANTIC_VERSION="${BASH_REMATCH[1]}-stg"
+                echo "Derived staging semantic version from raw version: $SEMANTIC_VERSION"
+              fi
+            elif [[ "$ENV" == "prod" ]]; then
+              # For prod, if version is semantic, use it directly
+              if [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+                SEMANTIC_VERSION="$VERSION"
+                echo "Using raw version as semantic version for prod: $SEMANTIC_VERSION"
+              fi
+            fi
+          fi
+          
+          # Derive clean_semver if missing
+          if [[ -z "$CLEAN_SEMVER" ]]; then
+            if [[ "$SEMANTIC_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-stg)?$ ]]; then
+              CLEAN_SEMVER="${BASH_REMATCH[1]}"
+              echo "Derived clean semantic version: $CLEAN_SEMVER"
+            elif [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+              CLEAN_SEMVER="$VERSION"
+              echo "Using raw version as clean semantic version: $CLEAN_SEMVER"
+            fi
+          fi
+          
+          # Set outputs
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "semantic_version=$SEMANTIC_VERSION" >> $GITHUB_OUTPUT
+          echo "clean_semver=$CLEAN_SEMVER" >> $GITHUB_OUTPUT
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "::endgroup::"
+          
+          # Final validation
+          if [[ -z "$VERSION" || -z "$ENV" ]]; then
+            echo "::error::Required inputs are still missing after preparation: version=$VERSION, environment=$ENV"
+            exit 1
+          fi
+          
+          echo "✅ Inputs prepared successfully"
+
       - name: Process tag using local action
         id: process-tag
         uses: ./.github/actions/process-tag
         with:
-          raw_version: ${{ github.event.client_payload.version }}
-          environment: ${{ github.event.client_payload.environment }}
-          semantic_version: ${{ github.event.client_payload.semantic_version }}
-          clean_semver: ${{ github.event.client_payload.clean_semver }}
-          sha: ${{ github.event.client_payload.sha }}
+          raw_version: ${{ steps.prepare-inputs.outputs.version }}
+          environment: ${{ steps.prepare-inputs.outputs.environment }}
+          semantic_version: ${{ steps.prepare-inputs.outputs.semantic_version }}
+          clean_semver: ${{ steps.prepare-inputs.outputs.clean_semver }}
+          sha: ${{ steps.prepare-inputs.outputs.sha }}
 
       - name: Set outputs for backward compatibility
         id: parse
         run: |
-          echo "raw_version=${{ github.event.client_payload.version }}" >> $GITHUB_OUTPUT
-          echo "environment=${{ github.event.client_payload.environment }}" >> $GITHUB_OUTPUT
+          echo "raw_version=${{ steps.prepare-inputs.outputs.version }}" >> $GITHUB_OUTPUT
+          echo "environment=${{ steps.prepare-inputs.outputs.environment }}" >> $GITHUB_OUTPUT
           echo "version=${{ steps.process-tag.outputs.version }}" >> $GITHUB_OUTPUT
           echo "tag_name=${{ steps.process-tag.outputs.tag_name }}" >> $GITHUB_OUTPUT
           echo "git_hash=${{ steps.process-tag.outputs.git_hash }}" >> $GITHUB_OUTPUT
-          echo "deploy_tag=${{ steps.process-tag.outputs.deploy_tag }}" >> $GITHUB_OUTPUT
+          echo "deploy_tag=${{ steps.process-tag.outputs.deploy_tag || steps.process-tag.outputs.version }}" >> $GITHUB_OUTPUT
 
           echo "Using version: ${{ steps.process-tag.outputs.version }}"
           echo "Using tag name: ${{ steps.process-tag.outputs.tag_name }}"

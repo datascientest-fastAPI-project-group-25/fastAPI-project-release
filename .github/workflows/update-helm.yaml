@@ -382,10 +382,8 @@ jobs:
           # Enable auto-merge for the PR
           echo "Enabling auto-merge for PR #${PR_NUMBER}"
           # Use --merge flag for merge commit strategy, add --delete-branch here too
-          gh pr merge "${PR_NUMBER}" --auto --merge --delete-branch
+          if ! gh pr merge "${PR_NUMBER}" --auto --merge --delete-branch; then
+            echo "::warning::Auto-merge failed for PR #${PR_NUMBER}, continuing."
+          fi
 
           echo "Auto-merge enabled for PR #${PR_NUMBER}"
-
-      # This step is no longer needed as app-release-trigger handles release creation
-      # - name: Create GitHub Release (if not triggered by release)
-      #   ...
