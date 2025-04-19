@@ -59,6 +59,7 @@ jobs:
         env: # Pass necessary variables to the script
           ENV: ${{ steps.vars.outputs.env }}
           DEPLOY_TAG: ${{ steps.update_helm.outputs.deploy_tag }}
+          GITHUB_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
           RAW_VERSION: ${{ steps.vars.outputs.raw_version }}
           OLD_BACKEND_TAG: ${{ steps.update_helm.outputs.old_backend_tag }}
           OLD_FRONTEND_TAG: ${{ steps.update_helm.outputs.old_frontend_tag }}
@@ -132,6 +133,8 @@ jobs:
               echo "PR Body generated."
 
               echo "Attempting to create PR for branch $NEW_BRANCH into $DEFAULT_BRANCH..."
+              # Set GH_TOKEN for GitHub CLI authentication
+              export GH_TOKEN="${GITHUB_TOKEN}"
               # Attempt to create the PR
               # Use --fill to use commit message for title and body if body script fails
               if PR_URL=$(gh pr create --base "$DEFAULT_BRANCH" --head "$NEW_BRANCH" --title "$COMMIT_MESSAGE" --body "$PR_BODY" 2>&1); then
