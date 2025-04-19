@@ -6,7 +6,7 @@ app:
 backend:
   name: backend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend
-  tag: stg-a914de9
+  tag: stg-831b5d9
   replicas: 1
   port: 8000
   service:
@@ -17,7 +17,7 @@ backend:
 frontend:
   name: frontend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend
-  tag: stg-a914de9  # This will be updated by the CI pipeline
+  tag: stg-831b5d9  # This will be updated by the CI pipeline
   replicas: 1
   port: 80
   service:
