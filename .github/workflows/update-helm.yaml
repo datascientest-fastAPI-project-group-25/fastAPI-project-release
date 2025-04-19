@@ -29,7 +29,7 @@ jobs:
           sudo chmod +x /usr/local/bin/yq
 
       - name: Make scripts executable
-        run: chmod +x ./scripts/generate_commit_message.sh ./scripts/generate_pr_body.sh ./scripts/get_release_vars.sh ./scripts/update_helm_values.sh ./scripts/commit_changes.sh
+        run: chmod +x ./scripts/generate_commit_message.sh ./scripts/generate_pr_body.sh ./scripts/get_release_vars.sh ./scripts/update_helm_values.sh ./scripts/commit_changes.sh ./scripts/enable_auto_merge.sh
 
       - name: Debug Event Information
         run: |
@@ -70,31 +70,5 @@ jobs:
         if: steps.commit.outputs.pr_number
         env:
           PR_NUMBER: ${{ steps.commit.outputs.pr_number }}
-          GITHUB_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }} # Use the machine user token for auto-merge
-        run: |
-          echo "Checking GitHub CLI installation..."
-          # Install GitHub CLI if not already cached
-          if ! command -v gh &> /dev/null; then
-            echo "Installing GitHub CLI..."
-            # Use recommended installation method
-            type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)
-            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
-            && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
-            && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-            && sudo apt update \
-            && sudo apt install gh -y
-          else
-             echo "GitHub CLI already installed."
-          fi
-
-          # Authenticate with GitHub CLI
-          echo "${{ secrets.MACHINE_USER_TOKEN }}" | gh auth login --with-token
-
-          # Enable auto-merge for the PR
-          echo "Enabling auto-merge for PR #${PR_NUMBER}"
-          # Use --merge flag for merge commit strategy, add --delete-branch here too
-          if ! gh pr merge "${PR_NUMBER}" --auto --merge --delete-branch; then
-            echo "::warning::Auto-merge failed for PR #${PR_NUMBER}, continuing."
-          fi
-
-          echo "Auto-merge enabled for PR #${PR_NUMBER}"
+          GH_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
+        run: ./scripts/enable_auto_merge.sh
