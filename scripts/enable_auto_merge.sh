@@ -83,7 +83,7 @@ check_permissions() {
     if ! gh api repos/:owner/:repo/collaborators/${GITHUB_ACTOR}/permission | grep -q '"write"\|"admin"'; then
         echo "::error::Insufficient permissions. Write access is required."
         exit 1
-    }
+    fi
 }
 
 # Function to check branch protection rules
