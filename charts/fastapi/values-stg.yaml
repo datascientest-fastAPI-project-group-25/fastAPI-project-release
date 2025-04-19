@@ -1,0 +1,52 @@
+# Stage environment configuration overrides
+
+app:
+  namespace: fastapi-stg
+
+backend:
+  tag: stg-latest  # Rolling tag for stg environment
+  replicas: 1
+
+frontend:
+  tag: stg-latest  # Rolling tag for stg environment
+  replicas: 1
+
+# Database configuration using secrets
+database:
+  name: postgres
+  image: postgres
+  tag: "12"
+  storage:
+    size: 1Gi
+  credentials:
+    # References to Kubernetes secrets
+    existingSecret: fastapi-db-creds-stg
+    usernameKey: username
+    passwordKey: password
+    databaseKey: database
+  service:
+    name: postgres
+    port: 5432
+
+# ConfigMap values for stg
+configMap:
+  # Use secretRef for database URL
+  databaseUrlSecret:
+    name: fastapi-db-conn-stg
+    key: url
+  allowedOrigins: https://stg.dashboard.example.com
+  corsSettings: "true"
+  debugMode: "true"
+  # Use secretRef for application secret key
+  secretKeyRef:
+    name: fastapi-app-secrets-stg
+    key: secret-key
+
+# Resource limits for stg
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
