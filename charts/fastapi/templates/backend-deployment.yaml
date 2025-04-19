@@ -30,8 +30,8 @@ spec:
           env:
             - name: DATABASE_URL
               valueFrom:
-                configMapKeyRef:
-                  name: {{ .Values.app.name }}-config
+                secretKeyRef:
+                  name: {{ .Values.app.name }}-secrets
                   key: databaseUrl
             - name: ALLOWED_ORIGINS
               valueFrom:
@@ -50,8 +50,8 @@ spec:
                   key: debugMode
             - name: SECRET_KEY
               valueFrom:
-                configMapKeyRef:
-                  name: {{ .Values.app.name }}-config
+                secretKeyRef:
+                  name: {{ .Values.app.name }}-secrets
                   key: secretKey
           {{- with .Values.resources }}
           resources:
@@ -79,25 +79,3 @@ spec:
       podSecurityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
----
-{{- if .Values.autoscaling.enabled }}
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: {{ .Values.backend.name }}-hpa
-  namespace: {{ .Values.app.namespace }}
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: {{ .Values.backend.name }}
-  minReplicas: {{ .Values.autoscaling.minReplicas }}
-  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
-{{- end }}
