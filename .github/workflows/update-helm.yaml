@@ -45,30 +45,118 @@ jobs:
         run: |
           ./scripts/get_release_vars.sh "${{ github.event.release.tag_name }}" "${{ github.event.release.prerelease }}"
 
-      - name: Update Helm values with new image tag (Idempotent)
-        id: update_helm
-        env: # Pass outputs as environment variables
+      - name: Update Helm values and commit changes
+        id: update_and_commit
+        env:
           ENV: ${{ steps.vars.outputs.env }}
           DEPLOY_TAG: ${{ steps.vars.outputs.deploy_tag }}
-          SEMANTIC_VERSION: ${{ steps.vars.outputs.semantic_version }}
-        run: ./scripts/update_helm_values.sh
-
-      - name: Commit changes
-        id: commit
-        if: steps.update_helm.outputs.updated == 'true'
-        env:
-          ENV: ${{ steps.vars.outputs.env }}
-          DEPLOY_TAG: ${{ steps.update_helm.outputs.deploy_tag }}
           RAW_VERSION: ${{ steps.vars.outputs.raw_version }}
-          OLD_BACKEND_TAG: ${{ steps.update_helm.outputs.old_backend_tag }}
-          OLD_FRONTEND_TAG: ${{ steps.update_helm.outputs.old_frontend_tag }}
           SEMANTIC_VERSION: ${{ steps.vars.outputs.semantic_version }}
           GITHUB_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
-        run: ./scripts/commit_changes.sh
+        run: |
+          cat << 'EOF' > /tmp/update_and_commit.sh
+          #!/bin/bash
+          set -e  # Exit on any error
+          
+          # Function for error handling
+          handle_error() {
+            echo "::error::Error on line $1"
+            exit 1
+          }
+          trap 'handle_error $LINENO' ERR
+          
+          # Debug: Show current values
+          echo "Current ENV: $ENV"
+          echo "Current DEPLOY_TAG: $DEPLOY_TAG"
+          
+          # Store initial state of values files
+          echo "::group::Initial values files state"
+          echo "Backend values:"
+          cat charts/backend/values-${ENV}.yaml || echo "Backend values file not found"
+          echo "Frontend values:"
+          cat charts/frontend/values-${ENV}.yaml || echo "Frontend values file not found"
+          echo "::endgroup::"
+          
+          # Update Helm values
+          echo "::group::Updating Helm values"
+          OLD_BACKEND_TAG=$(yq eval '.image.tag' charts/backend/values-${ENV}.yaml)
+          OLD_FRONTEND_TAG=$(yq eval '.image.tag' charts/frontend/values-${ENV}.yaml)
+          
+          # Update backend values
+          yq eval ".image.tag = \"$DEPLOY_TAG\"" -i charts/backend/values-${ENV}.yaml
+          # Update frontend values
+          yq eval ".image.tag = \"$DEPLOY_TAG\"" -i charts/frontend/values-${ENV}.yaml
+          
+          # Verify changes were made
+          NEW_BACKEND_TAG=$(yq eval '.image.tag' charts/backend/values-${ENV}.yaml)
+          NEW_FRONTEND_TAG=$(yq eval '.image.tag' charts/frontend/values-${ENV}.yaml)
+          echo "::endgroup::"
+          
+          # Debug: Show updated values
+          echo "::group::Updated values"
+          echo "Backend tag: $OLD_BACKEND_TAG -> $NEW_BACKEND_TAG"
+          echo "Frontend tag: $OLD_FRONTEND_TAG -> $NEW_FRONTEND_TAG"
+          echo "::endgroup::"
+          
+          # Check if any changes were made
+          if [ "$OLD_BACKEND_TAG" != "$NEW_BACKEND_TAG" ] || [ "$OLD_FRONTEND_TAG" != "$NEW_FRONTEND_TAG" ]; then
+            echo "Changes detected, proceeding with commit"
+            
+            # Generate commit message
+            COMMIT_MSG=$(./scripts/generate_commit_message.sh)
+            if [ -z "$COMMIT_MSG" ]; then
+              echo "::error::Failed to generate commit message"
+              exit 1
+            fi
+            
+            # Configure git
+            git config user.name "$GIT_AUTHOR_NAME"
+            git config user.email "$GIT_AUTHOR_EMAIL"
+            
+            # Create branch
+            BRANCH_NAME="helm-update/${ENV}-${SEMANTIC_VERSION}"
+            git checkout -b "$BRANCH_NAME"
+            
+            # Commit and push changes
+            git add charts/backend/values-${ENV}.yaml charts/frontend/values-${ENV}.yaml
+            git commit -m "$COMMIT_MSG"
+            git push origin "$BRANCH_NAME"
+            
+            # Create PR
+            PR_BODY=$(./scripts/generate_pr_body.sh)
+            PR_DATA=$(gh pr create \
+              --title "Update Helm values for ${ENV} to ${SEMANTIC_VERSION}" \
+              --body "$PR_BODY" \
+              --base main \
+              --head "$BRANCH_NAME")
+            
+            # Extract PR number and set output
+            PR_NUMBER=$(echo "$PR_DATA" | sed -n 's/^https:\/\/github\.com\/.*\/pull\/\([0-9]\+\)$/\1/p')
+            echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+            echo "updated=true" >> $GITHUB_OUTPUT
+          else
+            echo "No changes needed, values are already up to date"
+            echo "updated=false" >> $GITHUB_OUTPUT
+          fi
+          EOF
+          
+          chmod +x /tmp/update_and_commit.sh
+          /tmp/update_and_commit.sh
+
+      - name: Debug PR Number
+        run: |
+          echo "PR Number from previous step: ${{ steps.update_and_commit.outputs.pr_number }}"
+          echo "Raw output from previous step:"
+          cat $GITHUB_OUTPUT
 
       - name: Enable Auto-Merge
-        if: steps.commit.outputs.pr_number
+        if: steps.update_and_commit.outputs.pr_number != ''
         env:
-          PR_NUMBER: ${{ steps.commit.outputs.pr_number }}
+          PR_NUMBER: ${{ steps.update_and_commit.outputs.pr_number }}
           GH_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
-        run: ./scripts/enable_auto_merge.sh
+        run: |
+          if [ -z "${PR_NUMBER}" ]; then
+            echo "::error::PR_NUMBER is not set or empty"
+            exit 1
+          fi
+          ./scripts/enable_auto_merge.sh
