@@ -2,31 +2,28 @@
 app:
   name: fastapi-app
   namespace: fastapi-helm-stg
-
 # Backend configuration
 backend:
   name: backend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend
-  tag: stg-latest  # This will be updated by the CI pipeline
+  tag: stg-52b84c3
   replicas: 1
   port: 8000
   service:
     name: backend-service
     port: 8000
     type: ClusterIP
-
 # Frontend configuration
 frontend:
   name: frontend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend
-  tag: stg-latest  # This will be updated by the CI pipeline
+  tag: stg-52b84c3  # This will be updated by the CI pipeline
   replicas: 1
   port: 80
   service:
     name: frontend-service
     port: 80
     type: ClusterIP
-
 # Database configuration
 database:
   name: postgres
@@ -36,27 +33,24 @@ database:
     size: 1Gi
   credentials:
     username: postgres
-    password: postgres  # In production, use a secret manager
+    password: postgres # In production, use a secret manager
     database: postgres
   service:
     name: postgres
     port: 5432
-
 # Ingress configuration
 ingress:
   enabled: true
-  host: staging.dashboard.datascientest-group25.com  # Replace with your actual staging domain
+  host: staging.dashboard.datascientest-group25.com # Replace with your actual staging domain
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
-
 # ConfigMap values
 configMap:
   databaseUrl: postgresql://postgres:postgres@postgres:5432/postgres
   allowedOrigins: https://staging.dashboard.datascientest-group25.com
   corsSettings: true
   debugMode: true
-  secretKey: stg-secret-key  # In production, use a secret manager
-
+  secretKey: stg-secret-key # In production, use a secret manager
 resources:
   limits:
     cpu: 500m
@@ -64,13 +58,11 @@ resources:
   requests:
     cpu: 200m
     memory: 256Mi
-
 autoscaling:
   enabled: true
   minReplicas: 1
   maxReplicas: 3
   targetCPUUtilizationPercentage: 80
-
 # Stg-specific settings
 livenessProbe:
   initialDelaySeconds: 20
@@ -78,7 +70,6 @@ livenessProbe:
   timeoutSeconds: 5
   failureThreshold: 3
   successThreshold: 1
-
 readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
