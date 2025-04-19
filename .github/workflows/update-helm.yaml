@@ -133,11 +133,9 @@ jobs:
               echo "PR Body generated."
 
               echo "Attempting to create PR for branch $NEW_BRANCH into $DEFAULT_BRANCH..."
-              # Set GH_TOKEN for GitHub CLI authentication
-              export GH_TOKEN="${GITHUB_TOKEN}"
-              # Attempt to create the PR
+              # Attempt to create the PR using the GITHUB_TOKEN from the step env
               # Use --fill to use commit message for title and body if body script fails
-              if PR_URL=$(gh pr create --base "$DEFAULT_BRANCH" --head "$NEW_BRANCH" --title "$COMMIT_MESSAGE" --body "$PR_BODY" 2>&1); then
+              if PR_URL=$(GH_TOKEN="${GITHUB_TOKEN}" gh pr create --base "$DEFAULT_BRANCH" --head "$NEW_BRANCH" --title "$COMMIT_MESSAGE" --body "$PR_BODY" 2>&1); then
                  echo "✅ Pull Request created successfully: $PR_URL"
                  PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
                  echo "Extracted PR Number: $PR_NUMBER"
