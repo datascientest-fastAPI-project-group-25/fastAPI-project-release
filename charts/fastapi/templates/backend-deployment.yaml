@@ -15,9 +15,9 @@ spec:
       labels:
         app: {{ .Values.backend.name }}
     spec:
-      {{- if .Values.imagePullSecrets }}
+      {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
-        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
         - name: {{ .Values.backend.name }}
@@ -30,9 +30,15 @@ spec:
           env:
             - name: DATABASE_URL
               valueFrom:
+                {{- if .Values.configMap.databaseUrlSecret }}
+                secretKeyRef:
+                  name: {{ .Values.configMap.databaseUrlSecret.name }}
+                  key: {{ .Values.configMap.databaseUrlSecret.key }}
+                {{- else }}
                 configMapKeyRef:
                   name: {{ .Values.app.name }}-config
                   key: databaseUrl
+                {{- end }}
             - name: ALLOWED_ORIGINS
               valueFrom:
                 configMapKeyRef:
@@ -50,9 +56,15 @@ spec:
                   key: debugMode
             - name: SECRET_KEY
               valueFrom:
+                {{- if .Values.configMap.secretKeyRef }}
+                secretKeyRef:
+                  name: {{ .Values.configMap.secretKeyRef.name }}
+                  key: {{ .Values.configMap.secretKeyRef.key }}
+                {{- else }}
                 configMapKeyRef:
                   name: {{ .Values.app.name }}-config
                   key: secretKey
+                {{- end }}
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -79,25 +91,3 @@ spec:
       podSecurityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
----
-{{- if .Values.autoscaling.enabled }}
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: {{ .Values.backend.name }}-hpa
-  namespace: {{ .Values.app.namespace }}
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: {{ .Values.backend.name }}
-  minReplicas: {{ .Values.autoscaling.minReplicas }}
-  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
-{{- end }}

@@ -104,28 +104,50 @@ check_branch_protection() {
 # Function to check required status checks
 check_status_checks() {
     local timeout=1800  # 30 minutes timeout
-    local interval=30   # Check every 30 seconds
+    local base_interval=10  # Start with 10 second intervals
+    local max_interval=300  # Max 5 minute intervals
     local elapsed=0
+    local interval=$base_interval
+    local last_status=""
     
     while [ $elapsed -lt $timeout ]; do
         local status_output
-        status_output=$(gh pr view "${PR_NUMBER}" --json statusCheckRollup --jq '.statusCheckRollup[] | select(.state != "SUCCESS")')
+        local current_status
         
-        if [ -z "$status_output" ]; then
+        # Get both pending and successful checks for better status tracking
+        status_output=$(gh pr view "${PR_NUMBER}" --json statusCheckRollup --jq '.statusCheckRollup[]')
+        
+        # Count total and completed checks
+        local total_checks=$(echo "$status_output" | jq -r '. | length')
+        local completed_checks=$(echo "$status_output" | jq -r '[.[] | select(.state == "SUCCESS")] | length')
+        current_status="$completed_checks/$total_checks"
+        
+        # Only show status if it changed
+        if [ "$current_status" != "$last_status" ]; then
+            echo "::notice::Status check progress: $current_status checks completed"
+            # Show detailed status for incomplete checks
+            echo "$status_output" | jq -r 'select(.state != "SUCCESS") | "  \(.context): \(.state)"'
+            last_status=$current_status
+        fi
+        
+        # Check if all checks passed
+        pending_checks=$(echo "$status_output" | jq -r '[.[] | select(.state != "SUCCESS")] | length')
+        if [ "$pending_checks" -eq 0 ]; then
             echo "All required status checks have passed"
             return 0
-        else
-            echo "::notice::Waiting for status checks to complete (${elapsed}s elapsed)..."
-            if [ $elapsed -eq 0 ]; then
-                echo "Pending checks:"
-                echo "$status_output" | jq -r '.context + ": " + .state'
-            fi
-            sleep $interval
-            elapsed=$((elapsed + interval))
+        fi
+        
+        # Exponential backoff with max interval
+        sleep $interval
+        elapsed=$((elapsed + interval))
+        interval=$((interval * 2))
+        if [ $interval -gt $max_interval ]; then
+            interval=$max_interval
         fi
     done
     
-    echo "::error::Timeout waiting for status checks to complete"
+    echo "::error::Timeout waiting for status checks to complete after ${timeout}s"
+    echo "::error::Final status: $completed_checks of $total_checks checks passed"
     return 1
 }
 
@@ -133,24 +155,56 @@ check_status_checks() {
 enable_auto_merge() {
     local max_retries=5
     local retry_count=0
-    local wait_time=5
+    local base_wait=5
+    local max_wait=60
+    local wait_time=$base_wait
+    local lock_file="/tmp/auto_merge_${PR_NUMBER}.lock"
+    
+    # Ensure clean start
+    rm -f "$lock_file"
     
     echo "Attempting to enable auto-merge..."
     while [ $retry_count -lt $max_retries ]; do
+        # Try to acquire lock
+        if ! mkdir "$lock_file" 2>/dev/null; then
+            echo "::warning::Another process is currently enabling auto-merge, waiting..."
+            sleep 5
+            continue
+        fi
+        
+        # Verify PR is still open and mergeable
+        local pr_state
+        pr_state=$(gh pr view "${PR_NUMBER}" --json state,mergeable --jq '.state + ":" + (.mergeable | tostring)')
+        
+        if [[ "$pr_state" != "OPEN:true" ]]; then
+            echo "::error::PR is either closed or not mergeable (state: ${pr_state})"
+            rm -rf "$lock_file"
+            return 1
+        fi
+        
         if gh pr merge "${PR_NUMBER}" --auto --merge --delete-branch; then
             echo "Auto-merge enabled successfully"
+            rm -rf "$lock_file"
             return 0
         fi
         
+        # Release lock before retry
+        rm -rf "$lock_file"
+        
         retry_count=$((retry_count + 1))
         if [ $retry_count -lt $max_retries ]; then
-            wait_time=$((wait_time * 2))  # Exponential backoff
+            wait_time=$((wait_time * 2))
+            if [ $wait_time -gt $max_wait ]; then
+                wait_time=$max_wait
+            fi
             echo "::warning::Failed to enable auto-merge (attempt ${retry_count}/${max_retries}), retrying in ${wait_time}s..."
+            echo "::debug::Current wait time: ${wait_time}s, max wait: ${max_wait}s"
             sleep $wait_time
         fi
     done
     
     echo "::error::Failed to enable auto-merge after ${max_retries} attempts"
+    echo "::error::Final PR state: $(gh pr view "${PR_NUMBER}" --json state,mergeable)"
     return 1
 }
 
