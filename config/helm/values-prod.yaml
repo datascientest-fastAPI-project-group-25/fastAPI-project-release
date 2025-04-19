@@ -2,64 +2,58 @@
 app:
   name: fastapi-app
   namespace: fastapi-helm-prod
-
 # Backend configuration
 backend:
   name: backend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend
-  tag: prod-latest  # This will be updated by the CI pipeline
-  replicas: 2  # Higher replica count for prod
+  tag: 1.2.3 # This will be updated by the CI pipeline
+  replicas: 2 # Higher replica count for prod
   port: 8000
   service:
     name: backend-service
     port: 8000
     type: ClusterIP
-
 # Frontend configuration
 frontend:
   name: frontend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend
-  tag: prod-latest  # This will be updated by the CI pipeline
-  replicas: 2  # Higher replica count for prod
+  tag: 1.2.3 # This will be updated by the CI pipeline
+  replicas: 2 # Higher replica count for prod
   port: 80
   service:
     name: frontend-service
     port: 80
     type: ClusterIP
-
 # Database configuration
 database:
   name: postgres
   image: postgres
   tag: 12
   storage:
-    size: 10Gi  # Larger storage for prod
+    size: 10Gi # Larger storage for prod
   credentials:
     secretRef:
-      name: postgres-credentials  # Reference to external secret
+      name: postgres-credentials # Reference to external secret
   service:
     name: postgres
     port: 5432
-
 # Ingress configuration
 ingress:
   enabled: true
-  hostTemplate: "dashboard.${DOMAIN}"  # Will be interpolated from environment variables
+  hostTemplate: "dashboard.${DOMAIN}" # Will be interpolated from environment variables
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
     cert-manager.io/cluster-issuer: letsencrypt-prod
-
 # ConfigMap values
 configMap:
-  databaseUrl: "${DATABASE_URL}"  # Will be set from external secret
-  allowedOrigins: "https://dashboard.${DOMAIN}"  # Will be interpolated from environment variables
+  databaseUrl: "${DATABASE_URL}" # Will be set from external secret
+  allowedOrigins: "https://dashboard.${DOMAIN}" # Will be interpolated from environment variables
   corsSettings: true
-  debugMode: false  # Disable debug mode in prod
+  debugMode: false # Disable debug mode in prod
   secretKeyRef:
     name: app-secrets
-    key: secretKey  # Reference to external secret
-
+    key: secretKey # Reference to external secret
 resources:
   limits:
     cpu: 1000m
@@ -67,21 +61,17 @@ resources:
   requests:
     cpu: 500m
     memory: 512Mi
-
 autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 5
   targetCPUUtilizationPercentage: 70
-
 securityContext:
   runAsUser: 1000
   runAsGroup: 1000
   fsGroup: 1000
-
 podSecurityContext:
   runAsNonRoot: true
-
 # Prod-specific settings
 livenessProbe:
   initialDelaySeconds: 30
@@ -89,14 +79,12 @@ livenessProbe:
   timeoutSeconds: 5
   failureThreshold: 3
   successThreshold: 1
-
 readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
   timeoutSeconds: 5
   failureThreshold: 3
   successThreshold: 1
-
 # External Secrets configuration
 externalSecrets:
   enabled: true
@@ -127,7 +115,6 @@ externalSecrets:
           remoteRef:
             key: prod/app/secrets
             property: secretKey
-
 # Network policies for prod
 networkPolicies:
   enabled: true
