@@ -185,10 +185,11 @@ jobs:
           echo "::group::Updating Image Tags and Chart Version"
           echo "Updating values file: $VALUES_FILE"
           echo "Updating backend tag: $CURRENT_BACKEND_TAG -> $DEPLOY_TAG"
-          sed -i "s/tag: $CURRENT_BACKEND_TAG/tag: $DEPLOY_TAG/" "$VALUES_FILE"
+          # Use a more robust sed pattern that preserves any trailing comments
+          sed -i "s|tag: $CURRENT_BACKEND_TAG\(.*\)|tag: $DEPLOY_TAG\1|" "$VALUES_FILE"
 
           echo "Updating frontend tag: $CURRENT_FRONTEND_TAG -> $DEPLOY_TAG"
-          sed -i "s/tag: $CURRENT_FRONTEND_TAG/tag: $DEPLOY_TAG/" "$VALUES_FILE"
+          sed -i "s|tag: $CURRENT_FRONTEND_TAG\(.*\)|tag: $DEPLOY_TAG\1|" "$VALUES_FILE"
 
           # Update Chart.yaml version for production if needed
           if [[ "$ENV" == "prod" && -n "$CHART_FILE" && -f "$CHART_FILE" ]]; then
@@ -346,13 +347,13 @@ jobs:
           branch: ${{ steps.commit.outputs.branch_name }}
           base: ${{ steps.commit.outputs.default_branch }}
           # Use env vars for title consistency
-          title: "chore(helm): update image tags for ${{ env.ENV }} to ${{ env.DEPLOY_TAG }}" # Concise title
+          title: "chore(helm): update image tags for ${{ steps.vars.outputs.env }} to ${{ steps.update_helm.outputs.deploy_tag }}" # Concise title
           # Use the prepared PR body file
           body-path: pr_body.md
           labels: |
             automated-pr
             helm-update
-            env/${{ env.ENV }} # Use env var
+            env/${{ steps.vars.outputs.env }} # Environment label
           delete-branch: true # Delete the branch after merge/close
 
       - name: Auto-merge Pull Request
