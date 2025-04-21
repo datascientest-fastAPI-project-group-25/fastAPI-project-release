@@ -17,7 +17,7 @@ backend:
 frontend:
   name: frontend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend
-  tag: stg-ad8449d  # This will be updated by the CI pipeline
+  tag: stg-ad8449d 
   replicas: 1
   port: 80
   service:
