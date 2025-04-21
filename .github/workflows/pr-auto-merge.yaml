@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - 'helm/values-*.yaml'  # Only trigger on changes to Helm values files
+      - 'config/helm/values-*.yaml'  # Only trigger on changes to Helm values files
 
 jobs:
   auto-merge:
