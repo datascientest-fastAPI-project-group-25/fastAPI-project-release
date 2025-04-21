@@ -65,18 +65,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
         run: ./scripts/commit_changes.sh
 
-      - name: Wait for PR Checks and Merge
+      # PR checks and merging are now handled by the pr-auto-merge.yaml workflow
+      - name: Log PR Creation
         if: steps.commit.outputs.pr_number
         env:
           PR_NUMBER: ${{ steps.commit.outputs.pr_number }}
-          GH_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
         run: |
-          echo "Waiting for checks on PR #${PR_NUMBER}..."
-          if ! gh pr checks $PR_NUMBER --watch --required --interval 30; then
-            echo "::error::Required checks failed or timed out for PR #${PR_NUMBER}."
-            exit 1
-          fi
-          echo "All required checks passed for PR #${PR_NUMBER}."
-          echo "Attempting to merge PR #${PR_NUMBER}..."
-          gh pr merge $PR_NUMBER --squash --delete-branch
-          echo "PR #${PR_NUMBER} merged successfully."
+          echo "Created PR #${PR_NUMBER}. The pr-auto-merge.yaml workflow will handle checks and merging."
