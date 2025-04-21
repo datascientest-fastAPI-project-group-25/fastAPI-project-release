@@ -1,0 +1,31 @@
+name: Post Helm Update Actions
+
+on:
+  pull_request:
+    types: [closed]
+    paths:
+      - 'helm/values-*.yaml'  # Only trigger on changes to Helm values files
+
+jobs:
+  post-merge-actions:
+    # Only run if the PR was merged (not just closed) and was created by the GitHub Actions bot
+    if: github.event.pull_request.merged == true && (github.event.pull_request.user.login == 'github-actions[bot]' || github.event.pull_request.user.login == 'DatascientestMachineUser')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main  # Always checkout main after merge
+
+      - name: Log successful merge
+        run: |
+          echo "PR #${{ github.event.pull_request.number }} was successfully merged."
+          echo "Title: ${{ github.event.pull_request.title }}"
+          echo "Updated values file: ${{ github.event.pull_request.title }}"
+          
+      # Add any additional steps that need to happen after a successful merge
+      # For example:
+      # - Notify external systems
+      # - Trigger deployments
+      # - Update documentation

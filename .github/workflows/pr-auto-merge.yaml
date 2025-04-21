@@ -1,0 +1,70 @@
+name: Auto-Merge Helm Update PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'helm/values-*.yaml'  # Only trigger on changes to Helm values files
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    # Only run on PRs created by the GitHub Actions bot
+    if: github.actor == 'github-actions[bot]' || github.actor == 'DatascientestMachineUser'
+    env:
+      GH_TOKEN: ${{ secrets.MACHINE_USER_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.MACHINE_USER_TOKEN }}
+          fetch-depth: 0
+
+      - name: Wait for required checks
+        id: wait_for_checks
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          echo "Waiting for checks on PR #${PR_NUMBER}..."
+          
+          # Wait for a short time to allow checks to start
+          sleep 30
+          
+          # Try up to 5 times with increasing delays
+          for i in {1..5}; do
+            echo "Attempt $i to check PR status..."
+            
+            # Check if there are any required checks
+            REQUIRED_CHECKS=$(gh pr checks $PR_NUMBER --required --json name --jq 'length')
+            
+            if [[ "$REQUIRED_CHECKS" == "0" ]]; then
+              echo "No required checks found for PR #${PR_NUMBER}. Proceeding with merge."
+              break
+            fi
+            
+            # Try to wait for checks
+            if gh pr checks $PR_NUMBER --watch --required --interval 30; then
+              echo "All required checks passed for PR #${PR_NUMBER}."
+              break
+            else
+              echo "Checks not yet complete on attempt $i."
+              if [[ $i -lt 5 ]]; then
+                SLEEP_TIME=$((30 * i))
+                echo "Waiting ${SLEEP_TIME} seconds before next attempt..."
+                sleep $SLEEP_TIME
+              else
+                echo "::warning::Required checks still not passing after 5 attempts. Will try to merge anyway."
+              fi
+            fi
+          done
+
+      - name: Merge PR
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          echo "Attempting to merge PR #${PR_NUMBER}..."
+          
+          # Try to merge the PR
+          if gh pr merge $PR_NUMBER --squash --delete-branch; then
+            echo "PR #${PR_NUMBER} merged successfully."
+          else
+            echo "::warning::Failed to merge PR #${PR_NUMBER}. It may require manual intervention."
+          fi
