@@ -20,29 +20,38 @@ jobs:
           token: ${{ secrets.MACHINE_USER_TOKEN }}
           fetch-depth: 0
 
+      - name: Check for required checks
+        id: check_required
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          echo "Checking for required checks on PR #${PR_NUMBER}..."
+          
+          # Wait a short time for checks to register
+          sleep 10
+          
+          # Check if there are any required checks (redirect stderr to avoid error when no checks)
+          REQUIRED_CHECKS=$(gh pr checks $PR_NUMBER --required --json name --jq 'length' 2>/dev/null || echo "0")
+          echo "required_checks=$REQUIRED_CHECKS" >> $GITHUB_OUTPUT
+          
+          if [[ "$REQUIRED_CHECKS" == "0" ]]; then
+            echo "No required checks found for PR #${PR_NUMBER}. Will proceed with merge immediately."
+          else
+            echo "Found $REQUIRED_CHECKS required checks for PR #${PR_NUMBER}. Will wait for them to complete."
+          fi
+
       - name: Wait for required checks
+        if: steps.check_required.outputs.required_checks != '0'
         id: wait_for_checks
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
           echo "Waiting for checks on PR #${PR_NUMBER}..."
           
-          # Wait for a short time to allow checks to start
-          sleep 30
-          
           # Try up to 5 times with increasing delays
           for i in {1..5}; do
             echo "Attempt $i to check PR status..."
             
-            # Check if there are any required checks
-            REQUIRED_CHECKS=$(gh pr checks $PR_NUMBER --required --json name --jq 'length')
-            
-            if [[ "$REQUIRED_CHECKS" == "0" ]]; then
-              echo "No required checks found for PR #${PR_NUMBER}. Proceeding with merge."
-              break
-            fi
-            
             # Try to wait for checks
-            if gh pr checks $PR_NUMBER --watch --required --interval 30 || [[ $? -eq 1 && "$REQUIRED_CHECKS" == "0" ]]; then
+            if gh pr checks $PR_NUMBER --watch --required --interval 30; then
               echo "All required checks passed for PR #${PR_NUMBER}."
               break
             else
