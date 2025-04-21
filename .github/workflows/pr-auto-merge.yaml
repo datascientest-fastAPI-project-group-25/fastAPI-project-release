@@ -42,7 +42,7 @@ jobs:
             fi
             
             # Try to wait for checks
-            if gh pr checks $PR_NUMBER --watch --required --interval 30; then
+            if gh pr checks $PR_NUMBER --watch --required --interval 30 || [[ $? -eq 1 && "$REQUIRED_CHECKS" == "0" ]]; then
               echo "All required checks passed for PR #${PR_NUMBER}."
               break
             else
@@ -61,6 +61,13 @@ jobs:
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
           echo "Attempting to merge PR #${PR_NUMBER}..."
+          
+          # Check if PR is mergeable
+          MERGEABLE=$(gh pr view $PR_NUMBER --json mergeable --jq '.mergeable')
+          if [[ "$MERGEABLE" != "true" ]]; then
+            echo "::warning::PR #${PR_NUMBER} is not mergeable. It may require manual intervention."
+            exit 0
+          fi
           
           # Try to merge the PR
           if gh pr merge $PR_NUMBER --squash --delete-branch; then
