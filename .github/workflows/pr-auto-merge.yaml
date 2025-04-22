@@ -20,14 +20,45 @@ jobs:
           token: ${{ secrets.MACHINE_USER_TOKEN }}
           fetch-depth: 0
 
+      - name: Wait for PR to be mergeable
+        id: wait_for_mergeable
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          echo "Waiting for PR #${PR_NUMBER} to be mergeable..."
+          
+          # Wait for a longer time initially to allow GitHub to process the PR
+          echo "Initial wait of 30 seconds..."
+          sleep 30
+          
+          # Try up to 5 times with increasing delays
+          for i in {1..5}; do
+            echo "Attempt $i to check if PR is mergeable..."
+            
+            # Check if PR is mergeable
+            MERGEABLE=$(gh pr view $PR_NUMBER --json mergeable --jq '.mergeable')
+            
+            if [[ "$MERGEABLE" == "true" ]]; then
+              echo "PR #${PR_NUMBER} is mergeable."
+              echo "mergeable=true" >> $GITHUB_OUTPUT
+              break
+            else
+              echo "PR #${PR_NUMBER} is not yet mergeable on attempt $i."
+              if [[ $i -lt 5 ]]; then
+                SLEEP_TIME=$((30 * i))
+                echo "Waiting ${SLEEP_TIME} seconds before next attempt..."
+                sleep $SLEEP_TIME
+              else
+                echo "::warning::PR #${PR_NUMBER} is still not mergeable after 5 attempts."
+                echo "mergeable=false" >> $GITHUB_OUTPUT
+              fi
+            fi
+          done
+
       - name: Check for required checks
         id: check_required
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
           echo "Checking for required checks on PR #${PR_NUMBER}..."
-          
-          # Wait a short time for checks to register
-          sleep 10
           
           # Check if there are any required checks (redirect stderr to avoid error when no checks)
           REQUIRED_CHECKS=$(gh pr checks $PR_NUMBER --required --json name --jq 'length' 2>/dev/null || echo "0")
@@ -51,7 +82,7 @@ jobs:
             echo "Attempt $i to check PR status..."
             
             # Try to wait for checks
-            if gh pr checks $PR_NUMBER --watch --required --interval 30 || [[ $? -eq 1 && "$REQUIRED_CHECKS" == "0" ]]; then
+            if gh pr checks $PR_NUMBER --watch --required --interval 30; then
               echo "All required checks passed for PR #${PR_NUMBER}."
               break
             else
@@ -67,11 +98,12 @@ jobs:
           done
 
       - name: Merge PR
+        if: steps.wait_for_mergeable.outputs.mergeable == 'true'
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
           echo "Attempting to merge PR #${PR_NUMBER}..."
           
-          # Check if PR is mergeable
+          # Double-check if PR is mergeable
           MERGEABLE=$(gh pr view $PR_NUMBER --json mergeable --jq '.mergeable')
           if [[ "$MERGEABLE" != "true" ]]; then
             echo "::warning::PR #${PR_NUMBER} is not mergeable. It may require manual intervention."
