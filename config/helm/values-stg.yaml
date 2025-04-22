@@ -6,7 +6,7 @@ app:
 backend:
   name: backend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend
-  tag: stg-b13f2e8
+  tag: stg-1e39055
   replicas: 1
   port: 8000
   service:
@@ -17,7 +17,7 @@ backend:
 frontend:
   name: frontend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend
-  tag: stg-b13f2e8
+  tag: stg-1e39055
   replicas: 1
   port: 80
   service:
