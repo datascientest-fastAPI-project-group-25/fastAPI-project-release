@@ -1,130 +1,122 @@
-# Values for prod environment
+# Production configuration for FastAPI application
+
+# Application configuration
 app:
   name: fastapi-app
   namespace: fastapi-helm-prod
+
 # Backend configuration
 backend:
   name: backend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend
-  tag: 0.6.0 # This will be updated by the CI pipeline
-  replicas: 2 # Higher replica count for prod
+  tag: 0.6.0
   port: 8000
+  replicas: 2
   service:
-    name: backend-service
-    port: 8000
     type: ClusterIP
+    port: 80
+
 # Frontend configuration
 frontend:
   name: frontend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend
-  tag: 0.6.0 # This will be updated by the CI pipeline
-  replicas: 2 # Higher replica count for prod
+  tag: 0.6.0
   port: 80
+  replicas: 2
   service:
-    name: frontend-service
-    port: 80
     type: ClusterIP
-# Database configuration
-database:
-  name: postgres
-  image: postgres
-  tag: 12
-  storage:
-    size: 10Gi # Larger storage for prod
-  credentials:
-    secretRef:
-      name: postgres-credentials # Reference to external secret
-  service:
-    name: postgres
-    port: 5432
-# Ingress configuration
-ingress:
-  enabled: true
-  hostTemplate: "dashboard.${DOMAIN}" # Will be interpolated from environment variables
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-# ConfigMap values
+    port: 80
+
+# ConfigMap values for production
 configMap:
-  databaseUrl: "${DATABASE_URL}" # Will be set from external secret
-  allowedOrigins: "https://dashboard.${DOMAIN}" # Will be interpolated from environment variables
-  corsSettings: true
-  debugMode: false # Disable debug mode in prod
+  allowedOrigins: https://dashboard.example.com
+  corsSettings: "true"
+  debugMode: "false"
+  # Use secretRef for database URL
+  databaseUrlSecret:
+    name: fastapi-prod-secrets
+    key: DATABASE_URL
+  # Use secretRef for application secret key
   secretKeyRef:
-    name: app-secrets
-    key: secretKey # Reference to external secret
+    name: fastapi-prod-secrets
+    key: APP_SECRET_KEY
+
+# Production security context
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 1000
+
+# Resource limits for production
 resources:
   limits:
     cpu: 1000m
-    memory: 1024Mi
+    memory: 1Gi
   requests:
     cpu: 500m
     memory: 512Mi
+
+# Autoscaling configuration for production
 autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 5
-  targetCPUUtilizationPercentage: 70
-securityContext:
-  runAsUser: 1000
-  runAsGroup: 1000
-  fsGroup: 1000
-podSecurityContext:
-  runAsNonRoot: true
-# Prod-specific settings
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: api.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: api-tls
+      hosts:
+        - api.example.com
+
+# Image pull secrets for private registry
+imagePullSecrets:
+  - name: ghcr-secret
+
+# Health check probes
 livenessProbe:
   initialDelaySeconds: 30
   periodSeconds: 10
   timeoutSeconds: 5
   failureThreshold: 3
-  successThreshold: 1
 readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
   timeoutSeconds: 5
   failureThreshold: 3
-  successThreshold: 1
-# External Secrets configuration
-externalSecrets:
-  enabled: true
-  secretStores:
-    - name: aws-secrets
-      provider: aws-secrets-manager
-      region: ${AWS_REGION}
-  secrets:
-    - name: postgres-credentials
-      secretStore: aws-secrets
-      data:
-        - key: username
-          remoteRef:
-            key: prod/postgres/credentials
-            property: username
-        - key: password
-          remoteRef:
-            key: prod/postgres/credentials
-            property: password
-        - key: database
-          remoteRef:
-            key: prod/postgres/credentials
-            property: database
-    - name: app-secrets
-      secretStore: aws-secrets
-      data:
-        - key: secretKey
-          remoteRef:
-            key: prod/app/secrets
-            property: secretKey
-# Network policies for prod
-networkPolicies:
-  enabled: true
-  ingressRules:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: ingress-controller
-  egressRules:
-    - to:
-        - podSelector:
-            matchLabels:
-              app: postgres
+
+# Database configuration
+database:
+  name: postgres
+  image: postgres
+  tag: "12"
+  storage:
+    size: 10Gi
+  credentials:
+    # References to Kubernetes secrets
+    existingSecret: fastapi-prod-secrets
+    usernameKey: POSTGRES_USERNAME
+    passwordKey: POSTGRES_PASSWORD
+    databaseKey: POSTGRES_DB
+  service:
+    name: postgres
+    port: 5432
