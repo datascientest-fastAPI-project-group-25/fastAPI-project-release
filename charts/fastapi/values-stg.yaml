@@ -1,46 +1,45 @@
-# Stage environment configuration overrides
+# Staging configuration for FastAPI application
 
+# Application configuration
 app:
-  namespace: fastapi-stg
+  name: fastapi-app
+  namespace: fastapi-helm-stg
 
+# Backend configuration
 backend:
-  tag: stg-latest  # Rolling tag for stg environment
+  name: backend
+  image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend
+  tag: stg-5b1a56a
+  port: 8000
   replicas: 1
-
-frontend:
-  tag: stg-latest  # Rolling tag for stg environment
-  replicas: 1
-
-# Database configuration using secrets
-database:
-  name: postgres
-  image: postgres
-  tag: "12"
-  storage:
-    size: 1Gi
-  credentials:
-    # References to Kubernetes secrets
-    existingSecret: fastapi-db-creds-stg
-    usernameKey: username
-    passwordKey: password
-    databaseKey: database
   service:
-    name: postgres
-    port: 5432
+    type: ClusterIP
+    port: 80
+
+# Frontend configuration
+frontend:
+  name: frontend
+  image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend
+  tag: stg-5b1a56a
+  port: 80
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 80
 
 # ConfigMap values for stg
 configMap:
-  # Use secretRef for database URL
-  databaseUrlSecret:
-    name: fastapi-db-conn-stg
-    key: url
   allowedOrigins: https://stg.dashboard.example.com
   corsSettings: "true"
   debugMode: "true"
+  # Use secretRef for database URL
+  databaseUrlSecret:
+    name: fastapi-stg-secrets
+    key: DATABASE_URL
   # Use secretRef for application secret key
   secretKeyRef:
-    name: fastapi-app-secrets-stg
-    key: secret-key
+    name: fastapi-stg-secrets
+    key: APP_SECRET_KEY
 
 # Resource limits for stg
 resources:
@@ -50,3 +49,31 @@ resources:
   requests:
     cpu: 250m
     memory: 256Mi
+
+# Autoscaling configuration for stg
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+  hosts:
+    - host: stg.api.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: stg-api-tls
+      hosts:
+        - stg.api.example.com
+
+# Image pull secrets for private registry
+imagePullSecrets:
+  - name: ghcr-secret

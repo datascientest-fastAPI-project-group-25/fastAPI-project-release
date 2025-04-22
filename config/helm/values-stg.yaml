@@ -1,78 +1,96 @@
-# Values for stg environment
+# Staging configuration for FastAPI application
+
+# Application configuration
 app:
   name: fastapi-app
   namespace: fastapi-helm-stg
+
 # Backend configuration
 backend:
   name: backend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend
   tag: stg-5b1a56a
-  replicas: 1
   port: 8000
+  replicas: 1
   service:
-    name: backend-service
-    port: 8000
     type: ClusterIP
+    port: 80
+
 # Frontend configuration
 frontend:
   name: frontend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend
   tag: stg-5b1a56a
-  replicas: 1
   port: 80
+  replicas: 1
   service:
-    name: frontend-service
-    port: 80
     type: ClusterIP
-# Database configuration
-database:
-  name: postgres
-  image: postgres
-  tag: 12
-  storage:
-    size: 1Gi
-  credentials:
-    username: postgres
-    password: postgres # In production, use a secret manager
-    database: postgres
-  service:
-    name: postgres
-    port: 5432
-# Ingress configuration
-ingress:
-  enabled: true
-  host: staging.dashboard.datascientest-group25.com # Replace with your actual staging domain
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
-# ConfigMap values
+    port: 80
+
+# ConfigMap values for stg
 configMap:
-  databaseUrl: postgresql://postgres:postgres@postgres:5432/postgres
-  allowedOrigins: https://staging.dashboard.datascientest-group25.com
-  corsSettings: true
-  debugMode: true
-  secretKey: stg-secret-key # In production, use a secret manager
+  allowedOrigins: https://stg.dashboard.example.com
+  corsSettings: "true"
+  debugMode: "true"
+  # Use secretRef for database URL
+  databaseUrlSecret:
+    name: fastapi-stg-secrets
+    key: DATABASE_URL
+  # Use secretRef for application secret key
+  secretKeyRef:
+    name: fastapi-stg-secrets
+    key: APP_SECRET_KEY
+
+# Resource limits for stg
 resources:
   limits:
     cpu: 500m
     memory: 512Mi
   requests:
-    cpu: 200m
+    cpu: 250m
     memory: 256Mi
+
+# Autoscaling configuration for stg
 autoscaling:
-  enabled: true
+  enabled: false
   minReplicas: 1
   maxReplicas: 3
   targetCPUUtilizationPercentage: 80
-# Stg-specific settings
-livenessProbe:
-  initialDelaySeconds: 20
-  periodSeconds: 10
-  timeoutSeconds: 5
-  failureThreshold: 3
-  successThreshold: 1
-readinessProbe:
-  initialDelaySeconds: 5
-  periodSeconds: 10
-  timeoutSeconds: 5
-  failureThreshold: 3
-  successThreshold: 1
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+  hosts:
+    - host: stg.api.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: stg-api-tls
+      hosts:
+        - stg.api.example.com
+
+# Image pull secrets for private registry
+imagePullSecrets:
+  - name: ghcr-secret
+
+# Database configuration
+database:
+  name: postgres
+  image: postgres
+  tag: "12"
+  storage:
+    size: 1Gi
+  credentials:
+    # References to Kubernetes secrets
+    existingSecret: fastapi-stg-secrets
+    usernameKey: POSTGRES_USERNAME
+    passwordKey: POSTGRES_PASSWORD
+    databaseKey: POSTGRES_DB
+  service:
+    name: postgres
+    port: 5432
