@@ -6,7 +6,7 @@ app:
 backend:
   name: backend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/backend
-  tag: 0.0.1 # This will be updated by the CI pipeline
+  tag: 0.4.2 # This will be updated by the CI pipeline
   replicas: 2 # Higher replica count for prod
   port: 8000
   service:
@@ -17,7 +17,7 @@ backend:
 frontend:
   name: frontend
   image: ghcr.io/datascientest-fastapi-project-group-25/fastapi-project-app/frontend
-  tag: 0.0.1 # This will be updated by the CI pipeline
+  tag: 0.4.2 # This will be updated by the CI pipeline
   replicas: 2 # Higher replica count for prod
   port: 80
   service:
