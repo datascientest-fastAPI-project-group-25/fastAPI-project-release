@@ -1,0 +1,32 @@
+# Platform-independent monitoring stack for release repository
+# Compatible with Windows, macOS, and Linux
+
+services:
+  # Release monitoring service
+  release-monitoring:
+    image: node:18-alpine
+    container_name: release-monitoring
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - ./monitoring/release-monitoring.yml:/app/monitoring/release-monitoring.yml
+    environment:
+      - NODE_ENV=development
+      - LOKI_HOST=loki
+      - LOKI_PORT=3100
+      - PROMETHEUS_HOST=prometheus
+      - PROMETHEUS_PORT=9090
+      - GRAFANA_HOST=grafana
+      - GRAFANA_PORT=3000
+    command: >
+      sh -c "
+        echo 'Release monitoring service started' &&
+        tail -f /dev/null
+      "
+    networks:
+      - monitoring-network
+
+networks:
+  monitoring-network:
+    external: true
+    name: monitoring-network
