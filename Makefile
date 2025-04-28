@@ -11,6 +11,9 @@ ENV ?= dev
 BRANCH_NAME ?=
 NAME ?=
 
+# Branch creation modes
+INTERACTIVE ?= true
+
 # Import makefiles
 include make/utils.mk
 include make/bootstrap.mk
