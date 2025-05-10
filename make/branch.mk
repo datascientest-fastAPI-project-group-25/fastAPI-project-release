@@ -1,19 +1,33 @@
 # === Branch Management ===
-.PHONY: branch feat fix
+.PHONY: branch feat fix hotfix chore
 
 branch:
-	bun run scripts/src/commands/branch/create.ts
+	@bun run scripts/src/commands/branch/create.ts
 
 feat:
-	@if [ -z "$(NAME)" ]; then \
-		bun run scripts/src/commands/branch/create.ts feat; \
+	@if [ -n "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		bun run scripts/src/commands/branch/create.ts feat "$(filter-out $@,$(MAKECMDGOALS))"; \
 	else \
-		bun run scripts/src/commands/branch/create.ts feat "$(NAME)"; \
+		bun run scripts/src/commands/branch/create.ts feat; \
 	fi
 
 fix:
-	@if [ -z "$(NAME)" ]; then \
-		bun run scripts/src/commands/branch/create.ts fix; \
+	@if [ -n "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		bun run scripts/src/commands/branch/create.ts fix "$(filter-out $@,$(MAKECMDGOALS))"; \
 	else \
-		bun run scripts/src/commands/branch/create.ts fix "$(NAME)"; \
+		bun run scripts/src/commands/branch/create.ts fix; \
+	fi
+
+hotfix:
+	@if [ -n "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		bun run scripts/src/commands/branch/create.ts hotfix "$(filter-out $@,$(MAKECMDGOALS))"; \
+	else \
+		bun run scripts/src/commands/branch/create.ts hotfix; \
+	fi
+
+chore:
+	@if [ -n "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		bun run scripts/src/commands/branch/create.ts chore "$(filter-out $@,$(MAKECMDGOALS))"; \
+	else \
+		bun run scripts/src/commands/branch/create.ts chore; \
 	fi
